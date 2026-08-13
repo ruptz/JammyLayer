@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Now Playing</title>
+<link rel="stylesheet" href="/overlay.css">
+</head>
+<body>
+  <div class="stage" id="stage" data-state="idle">
+    <div class="frame">
+      <!-- The artwork again, scaled and blurred. On the glass surface it spills
+           past the card and is what backdrop-filter refracts; on bleed it is
+           clipped to the card and becomes its background. -->
+      <span class="bloom" id="bloom" aria-hidden="true"></span>
+
+      <article class="card">
+        <span class="card__sheen" aria-hidden="true"></span>
+
+        <div class="art">
+          <img class="art__layer" id="artA" alt="" decoding="async">
+          <img class="art__layer" id="artB" alt="" decoding="async">
+          <span class="art__empty" aria-hidden="true"></span>
+        </div>
+
+        <div class="meta">
+          <div class="clip" id="titleClip">
+            <p class="title" id="title"></p>
+          </div>
+          <p class="subtitle" id="subtitle"></p>
+
+          <div class="transport">
+            <div class="scale" id="scale">
+              <span class="scale__ticks" id="ticks" aria-hidden="true"></span>
+              <span class="scale__played" id="played" aria-hidden="true">
+                <span class="scale__ticks scale__ticks--on" id="ticksOn"></span>
+              </span>
+              <span class="scale__head" id="head" aria-hidden="true"></span>
+            </div>
+            <p class="time">
+              <span id="elapsed">0:00</span>
+              <span class="time__total" id="total">0:00</span>
+            </p>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <script src="/overlay.js"></script>
+</body>
+</html>

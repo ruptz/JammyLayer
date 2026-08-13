@@ -1,0 +1,661 @@
+/* ---------------------------------------------------------------------------
+   Now Playing overlay.
+
+   Three constraints shape everything here:
+
+   1. In OBS the browser source is composited over video *outside* the page, so
+      the page can never see the footage behind it. backdrop-filter has no
+      footage to blur. What it CAN blur is another layer inside the page — so
+      the glass surface puts the album art behind the card and refracts that.
+      The colour is real light off the artwork, not a swatch painted on trim.
+   2. OBS 30.x still ships CEF/Chromium 103, so no color-mix(), :has(), oklch()
+      or CSS nesting. Colours are RGB triplets consumed through rgb(x / a).
+      backdrop-filter is fine (Chrome 76+), as are filter, mask and aspect-ratio.
+   3. Legibility over arbitrary footage. Every surface has to stay readable over
+      a white sky and a black cave, which is what the shadows and scrims are for.
+
+   Structure:  .stage > .frame > (.bloom + .card)
+   The bloom is the artwork again, scaled and blurred. On glass it spills past
+   the card; on bleed it is clipped to it; on bare it is switched off.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --ink: 11 13 16;
+  --ink-2: 20 24 29;
+  --chalk: 242 244 243;
+  --dim: 138 146 153;
+  --accent: 217 169 76; /* amber fallback; replaced per-track from the artwork */
+  --shadow: 0 0 0;
+
+  /* Bahnschrift ships with Windows 10+ — a DIN-like industrial face that keeps
+     long track titles narrow. No webfont, so nothing to load and nothing to
+     flash on an OBS cache refresh. */
+  --font-display: "Bahnschrift SemiCondensed", "Bahnschrift", "Segoe UI Variable Display",
+    "Segoe UI", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Overridden per surface. --pad has to leave room for whatever the surface
+     paints outside the card (bloom spill, shadow), because it decides the OBS
+     source size the setup page reports. */
+  --pad: 18px;
+  --radius: 16px;
+  --rail: var(--chalk) / 0.30;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* zoom (not transform) so scaling re-lays out and text stays crisp. */
+.stage {
+  display: flex;
+  zoom: var(--scale, 1);
+  padding: var(--pad);
+  transition: opacity 420ms var(--ease), transform 420ms var(--ease);
+}
+
+.stage[data-state="idle"] {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.stage[data-state="live"],
+.stage[data-state="empty"] {
+  opacity: 1;
+  transform: none;
+}
+
+.stage[data-state="empty"] .card { opacity: 0.5; }
+
+/* Wraps bloom + card so the bloom can be positioned against the card's box
+   without being clipped by it. Shrink-wraps as a flex item. */
+.frame {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/* ------------------------------------------------------------------- the bloom */
+
+.bloom {
+  position: absolute;
+  z-index: 0;
+  background-position: center;
+  background-size: cover;
+  opacity: 0;
+  transition: opacity 520ms var(--ease);
+}
+
+.bloom.is-lit { opacity: 1; }
+
+/* ------------------------------------------------------------------- the card */
+
+.card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: var(--w, 452px);
+  padding: 16px 20px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  transition: opacity 320ms var(--ease);
+}
+
+/* Specular highlight. On glass this is the light catching the top edge; on the
+   other surfaces it is switched off rather than deleted, so the element stays
+   available to whichever surface wants it. */
+.card__sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* --------------------------------------------------------------------- artwork */
+
+.art {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgb(var(--ink-2));
+}
+
+.art__layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 340ms var(--ease);
+}
+
+.art__layer.is-front { opacity: 1; }
+
+/* A pressed-disc mark, shown only when a track has no artwork at all. */
+.art__empty {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 240ms var(--ease);
+  background:
+    radial-gradient(circle at 50% 50%, rgb(var(--dim) / 0.55) 0 2px, transparent 2px),
+    radial-gradient(circle at 50% 50%, transparent 0 13px, rgb(var(--dim) / 0.22) 13px 14px, transparent 14px),
+    radial-gradient(circle at 50% 50%, transparent 0 22px, rgb(var(--dim) / 0.14) 22px 23px, transparent 23px);
+}
+
+.art.is-empty .art__empty { opacity: 1; }
+
+/* ------------------------------------------------------------------ track text */
+
+.meta {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.clip {
+  position: relative;
+  overflow: hidden;
+}
+
+.clip.is-masked {
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), transparent 100%);
+}
+
+/* width:max-content makes offsetWidth the true text width, so the marquee
+   measurement in overlay.js is exact instead of relying on scrollWidth. */
+.title {
+  display: block;
+  width: max-content;
+  margin: 0;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  font-stretch: 87.5%;
+  line-height: 1.12;
+  letter-spacing: -0.012em;
+  color: rgb(var(--chalk));
+}
+
+/* Same family and tracking as the title, only smaller and dimmer — a separate
+   grey at a separate size is the pairing that reads as a generic template. */
+.subtitle {
+  margin: 4px 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 400;
+  font-stretch: 87.5%;
+  line-height: 1.25;
+  letter-spacing: 0.005em;
+  color: rgb(var(--chalk) / 0.60);
+}
+
+/* ------------------------------------------------------------------- transport
+
+   Two modes, both painted from overlay.js because the geometry depends on the
+   track's duration: a tick ruler spaced by real seconds, or a plain hairline.
+   ---------------------------------------------------------------------------- */
+
+.transport {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.scale {
+  position: relative;
+  flex: 1 1 auto;
+  height: 10px;
+}
+
+/* JS paints the gradients with currentColor, so the palette stays in CSS and
+   only the geometry is computed. */
+.scale__ticks {
+  position: absolute;
+  inset: 0;
+  color: rgb(var(--rail));
+}
+
+.scale__ticks--on { color: rgb(var(--accent)); }
+
+/* Played ticks are the same ruler in accent, revealed by a clipping window. */
+.scale__played {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  overflow: hidden;
+}
+
+.scale__played .scale__ticks {
+  width: var(--scale-w, 100%);
+}
+
+.scale__head {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: rgb(var(--accent));
+  box-shadow: 0 0 8px rgb(var(--accent) / 0.65);
+  transform: translateX(var(--head, 0px));
+}
+
+.time {
+  display: flex;
+  flex: none;
+  gap: 5px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.045em;
+  color: rgb(var(--chalk) / 0.88);
+}
+
+.time__total { color: rgb(var(--chalk) / 0.42); }
+
+.time__total::before {
+  content: "/";
+  margin-right: 5px;
+  opacity: 0.5;
+}
+
+/* ============================================================ surface: glass
+
+   A translucent panel over the blurred artwork. backdrop-filter does the
+   refraction, an inset top highlight gives the specular edge, and the shadow is
+   split into a tight contact shadow plus a wide ambient one — a single big soft
+   drop shadow is the thing that reads as a sticker floating on the stream.
+   ============================================================================ */
+
+body[data-surface="glass"] {
+  --pad: 34px;
+  --radius: 22px;
+  --rail: var(--chalk) / 0.34;
+}
+
+body[data-surface="glass"] .bloom {
+  inset: -34px -26px;
+  filter: blur(34px) saturate(190%);
+  -webkit-mask-image: radial-gradient(closest-side, #000 42%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 42%, transparent 100%);
+}
+
+/* The tint is a floor, not a wash: a white or neon sleeve would otherwise light
+   the panel bright enough to swallow the type. Saturation stays high so the hue
+   still reads, while the flat ink layer guarantees contrast under the text
+   whatever the cover happens to be. */
+body[data-surface="glass"] .card {
+  background: rgb(var(--ink) / 0.44);
+  -webkit-backdrop-filter: blur(26px) saturate(195%) brightness(0.85);
+  backdrop-filter: blur(26px) saturate(195%) brightness(0.85);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    inset 0 0 0 1px rgb(255 255 255 / 0.07),
+    inset 0 -1px 0 rgb(0 0 0 / 0.30),
+    0 2px 6px -2px rgb(var(--shadow) / 0.55),
+    0 20px 44px -18px rgb(var(--shadow) / 0.70);
+}
+
+body[data-surface="glass"] .card__sheen {
+  opacity: 1;
+  background: linear-gradient(
+    148deg,
+    rgb(255 255 255 / 0.15) 0%,
+    rgb(255 255 255 / 0.05) 24%,
+    rgb(255 255 255 / 0) 54%
+  );
+}
+
+body[data-surface="glass"] .art {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.10),
+    0 6px 14px -6px rgb(var(--shadow) / 0.7);
+}
+
+/* ============================================================= surface: bare
+
+   No container. Type and artwork sit straight on the footage, held legible by
+   a layered text shadow rather than a plate. Only the progress line is tinted.
+   ============================================================================ */
+
+body[data-surface="bare"] {
+  --pad: 16px;
+  --radius: 0px;
+  --rail: var(--chalk) / 0.42;
+}
+
+body[data-surface="bare"] .bloom { display: none; }
+
+body[data-surface="bare"] .card {
+  background: none;
+  padding: 0;
+  overflow: visible;
+}
+
+body[data-surface="bare"] .art {
+  border-radius: 5px;
+  box-shadow: 0 4px 16px -4px rgb(var(--shadow) / 0.75);
+}
+
+/* Two shadows: a tight dark one for edge contrast on light footage, and a wide
+   soft one that acts as a halo so the glyphs never dissolve into busy frames. */
+body[data-surface="bare"] .title,
+body[data-surface="bare"] .subtitle,
+body[data-surface="bare"] .time {
+  text-shadow:
+    0 1px 2px rgb(var(--shadow) / 0.92),
+    0 0 14px rgb(var(--shadow) / 0.65);
+}
+
+body[data-surface="bare"] .subtitle { color: rgb(var(--chalk) / 0.72); }
+
+body[data-surface="bare"] .scale__ticks,
+body[data-surface="bare"] .scale__head {
+  filter: drop-shadow(0 1px 2px rgb(var(--shadow) / 0.8));
+}
+
+/* ============================================================ surface: bleed
+
+   The sleeve is the background: scaled, blurred, clipped to the card, then
+   covered by a directional scrim so the text side stays readable while the far
+   side keeps the colour. Opaque, so it survives any footage underneath.
+   ============================================================================ */
+
+body[data-surface="bleed"] {
+  --pad: 20px;
+  --radius: 14px;
+  --rail: var(--chalk) / 0.46;
+}
+
+body[data-surface="bleed"] .frame {
+  overflow: hidden;
+  border-radius: var(--radius);
+  box-shadow:
+    0 2px 6px -2px rgb(var(--shadow) / 0.5),
+    0 16px 36px -16px rgb(var(--shadow) / 0.65);
+}
+
+/* Saturation carries the colour instead of exposure. Darkening the artwork to
+   make room for the scrim is what turns a red sleeve into grey mud, so the
+   brightness cut stays shallow and the scrim does the legibility work. */
+body[data-surface="bleed"] .bloom {
+  inset: 0;
+  filter: blur(30px) saturate(215%) brightness(0.88);
+  /* Scaled up so the blur samples real pixels instead of smearing the edges. */
+  transform: scale(1.5);
+}
+
+/* Two stops, not three. A gentle falloff keeps the whole panel one tinted
+   surface; a steep one leaves the thin end looking washed out and unfinished. */
+body[data-surface="bleed"] .card {
+  background: linear-gradient(
+    100deg,
+    rgb(var(--ink) / 0.86) 0%,
+    rgb(var(--ink) / 0.62) 100%
+  );
+}
+
+body[data-surface="bleed"] .card__sheen {
+  opacity: 1;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.10) 0%, rgb(255 255 255 / 0) 38%);
+}
+
+body[data-surface="bleed"] .art {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.12),
+    0 8px 18px -6px rgb(var(--shadow) / 0.8);
+}
+
+/* ---------------------------------------------------------------------- paused */
+
+body[data-paused="true"] .card { opacity: 0.62; }
+body[data-paused="true"] .bloom { opacity: 0.4; }
+
+body[data-paused="true"] .scale__head {
+  box-shadow: none;
+  opacity: 0.45;
+}
+
+/* -------------------------------------------------------------- layout: strip */
+
+body[data-layout="strip"] .card {
+  width: var(--w, 552px);
+  gap: 13px;
+  padding: 11px 16px;
+}
+
+body[data-surface="bare"][data-layout="strip"] .card { padding: 0; }
+
+body[data-layout="strip"] .art { width: 38px; height: 38px; border-radius: 5px; }
+
+body[data-layout="strip"] .meta {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+body[data-layout="strip"] .clip { flex: 0 1 auto; min-width: 0; }
+body[data-layout="strip"] .title { font-size: 17px; }
+
+body[data-layout="strip"] .subtitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+}
+
+body[data-layout="strip"] .subtitle::before {
+  content: "\00b7";
+  margin-right: 11px;
+  opacity: 0.5;
+}
+
+body[data-layout="strip"] .transport {
+  flex: 0 0 auto;
+  margin: 0 0 0 auto;
+}
+
+body[data-layout="strip"] .scale { width: 128px; flex: none; height: 8px; }
+
+/* -------------------------------------------------------------- layout: stack */
+
+body[data-layout="stack"] .card {
+  flex-direction: column;
+  align-items: stretch;
+  width: var(--w, 264px);
+  gap: 14px;
+  padding: 15px;
+}
+
+body[data-surface="bare"][data-layout="stack"] .card { padding: 0; }
+
+body[data-layout="stack"] .art {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+}
+
+body[data-surface="bare"][data-layout="stack"] .art { border-radius: 6px; }
+
+/* --------------------------------------------------- right-anchored placement */
+
+body[data-align="right"] { justify-content: flex-end; }
+
+body[data-align="right"][data-layout="transport"] .card,
+body[data-align="right"][data-layout="strip"] .card {
+  flex-direction: row-reverse;
+}
+
+body[data-align="right"][data-layout="transport"] .transport,
+body[data-align="right"][data-layout="strip"] .transport {
+  flex-direction: row-reverse;
+}
+
+body[data-align="right"][data-layout="strip"] .meta { flex-direction: row-reverse; }
+body[data-align="right"][data-layout="strip"] .transport { margin: 0 auto 0 0; }
+
+body[data-align="right"][data-layout="strip"] .subtitle::before {
+  margin-right: 0;
+  margin-left: 11px;
+}
+
+body[data-align="right"] .title,
+body[data-align="right"] .subtitle { text-align: right; }
+
+body[data-align="right"] .title { margin-left: auto; }
+
+/* The glass sheen tracks the light source, so it flips with the card. */
+body[data-align="right"][data-surface="glass"] .card__sheen {
+  background: linear-gradient(
+    212deg,
+    rgb(255 255 255 / 0.15) 0%,
+    rgb(255 255 255 / 0.05) 24%,
+    rgb(255 255 255 / 0) 54%
+  );
+}
+
+body[data-align="right"][data-surface="bleed"] .card {
+  background: linear-gradient(
+    260deg,
+    rgb(var(--ink) / 0.86) 0%,
+    rgb(var(--ink) / 0.62) 100%
+  );
+}
+
+/* Note: the ruler is deliberately *not* mirrored for right-anchored placement.
+   Elapsed time reads left-to-right whichever corner the card sits in; only the
+   artwork and the timecode swap sides. */
+
+/* ----------------------------------------------------------------- paper theme */
+
+body[data-theme="paper"] {
+  --ink: 247 246 243;
+  --ink-2: 232 230 225;
+  --chalk: 22 24 27;
+  --dim: 106 112 118;
+  --accent: 176 108 36;
+  --shadow: 42 38 32;
+  --rail: var(--chalk) / 0.28;
+}
+
+/* Light glass reflects rather than absorbs, so the panel brightens what is
+   behind it instead of darkening it, and the specular edge inverts. */
+body[data-theme="paper"][data-surface="glass"] .card {
+  background: rgb(var(--ink) / 0.58);
+  -webkit-backdrop-filter: blur(26px) saturate(180%) brightness(1.35);
+  backdrop-filter: blur(26px) saturate(180%) brightness(1.35);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.75),
+    inset 0 0 0 1px rgb(255 255 255 / 0.35),
+    0 2px 6px -2px rgb(var(--shadow) / 0.22),
+    0 20px 44px -18px rgb(var(--shadow) / 0.30);
+}
+
+body[data-theme="paper"][data-surface="glass"] .art {
+  box-shadow:
+    0 0 0 1px rgb(var(--shadow) / 0.12),
+    0 6px 14px -6px rgb(var(--shadow) / 0.35);
+}
+
+body[data-theme="paper"][data-surface="bleed"] .bloom {
+  filter: blur(26px) saturate(150%) brightness(1.28);
+}
+
+body[data-theme="paper"][data-surface="bare"] .title,
+body[data-theme="paper"][data-surface="bare"] .subtitle,
+body[data-theme="paper"][data-surface="bare"] .time {
+  text-shadow:
+    0 1px 2px rgb(255 255 255 / 0.85),
+    0 0 14px rgb(255 255 255 / 0.75);
+}
+
+/* -------------------------------------------------------------------- optional */
+
+body[data-art="off"] .art { display: none; }
+
+/* Without artwork there is nothing to bloom, so glass falls back to a plain
+   tint rather than refracting an empty layer. */
+body[data-art="off"] .bloom { display: none; }
+
+/* ------------------------------------------------------------------- animation
+
+   One orchestrated moment per track change, then nothing moves except the
+   playhead. An overlay is seen hundreds of times a stream, so ambient motion
+   would wear out fast.
+   ---------------------------------------------------------------------------- */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sheen-sweep {
+  from { opacity: 0; transform: translateX(-14%); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The rise sits on .clip, never on .title — .title owns the marquee animation
+   and a second `animation` declaration would silently replace it. */
+.is-enter .clip { animation: rise 300ms var(--ease) both; }
+.is-enter .subtitle { animation: rise 300ms var(--ease) 60ms both; }
+.is-enter .transport { animation: rise 300ms var(--ease) 110ms both; }
+
+body[data-surface="glass"] .is-enter .card__sheen,
+body[data-surface="bleed"] .is-enter .card__sheen {
+  animation: sheen-sweep 620ms var(--ease) both;
+}
+
+/* Long titles pan once, hold at each end, and pan back — a continuous loop is
+   the thing that makes an overlay feel restless. */
+@keyframes marquee {
+  0%, 15% { transform: translateX(0); }
+  46%, 57% { transform: translateX(var(--shift, 0px)); }
+  88%, 100% { transform: translateX(0); }
+}
+
+.title.is-marquee { animation: marquee var(--marquee-dur, 13s) ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage, .card, .art__layer, .art__empty, .bloom { transition-duration: 1ms; }
+
+  .is-enter .clip,
+  .is-enter .subtitle,
+  .is-enter .transport,
+  .is-enter .card__sheen { animation: none; }
+
+  .title.is-marquee { animation: none; }
+}

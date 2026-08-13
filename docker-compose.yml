@@ -1,0 +1,24 @@
+name: spotify-overlay
+
+services:
+  overlay:
+    build: .
+    image: spotify-obs-overlay:latest
+    container_name: spotify-overlay
+    restart: unless-stopped
+    ports:
+      # Bound to all interfaces so other machines on the LAN can reach the
+      # overlay at http://<vps-ip>:8888/
+      - "8888:8888"
+    env_file:
+      - .env
+    environment:
+      PORT: "8888"
+      DATA_DIR: /data
+    volumes:
+      # A named volume, not a bind mount: the container runs as uid 1000 and a
+      # host directory created by root would not be writable.
+      - tokens:/data
+
+volumes:
+  tokens:

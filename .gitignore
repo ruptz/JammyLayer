@@ -1,0 +1,6 @@
+# Contains your Spotify client secret
+.env
+
+data/
+node_modules/
+npm-debug.log*
