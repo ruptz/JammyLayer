@@ -37,10 +37,10 @@
            else has. Unhidden once /api/config says so. -->
       <button class="btn btn--icon" id="prefsBtn" type="button" hidden
               title="App settings" aria-label="App settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-             stroke-linecap="square" aria-hidden="true">
-          <circle cx="12" cy="12" r="3.4"/>
-          <path d="M12 2.8v3.2M12 18v3.2M21.2 12H18M6 12H2.8M18.5 5.5l-2.3 2.3M7.8 16.2l-2.3 2.3M18.5 18.5l-2.3-2.3M7.8 7.8 5.5 5.5"/>
+        <!-- A filled gear, not a stroked star: the teeth are trapezoids sitting
+             flush on the body, which is what stops it reading as a sun. -->
+        <svg viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd" aria-hidden="true">
+          <path d="M10.20 3.90L10.56 1.09L13.44 1.09L13.80 3.90A8.3 8.3 0 0 1 16.46 5.00L18.70 3.27L20.73 5.30L19.00 7.54A8.3 8.3 0 0 1 20.10 10.20L22.91 10.56L22.91 13.44L20.10 13.80A8.3 8.3 0 0 1 19.00 16.46L20.73 18.70L18.70 20.73L16.46 19.00A8.3 8.3 0 0 1 13.80 20.10L13.44 22.91L10.56 22.91L10.20 20.10A8.3 8.3 0 0 1 7.54 19.00L5.30 20.73L3.27 18.70L5.00 16.46A8.3 8.3 0 0 1 3.90 13.80L1.09 13.44L1.09 10.56L3.90 10.20A8.3 8.3 0 0 1 5.00 7.54L3.27 5.30L5.30 3.27L7.54 5.00A8.3 8.3 0 0 1 10.20 3.90ZM12 8A4 4 0 1 0 12 16A4 4 0 1 0 12 8Z"/>
         </svg>
       </button>
     </div>
