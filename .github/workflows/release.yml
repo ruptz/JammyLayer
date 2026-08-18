@@ -8,6 +8,12 @@
 #
 # Or run it from the Actions tab to build the installers without releasing
 # anything: the build jobs still upload their output as workflow artifacts.
+#
+# Nothing is code-signed, which is why the installers trip SmartScreen and
+# Gatekeeper. Signing them needs no change to the steps below, only repository
+# secrets: CSC_LINK + CSC_KEY_PASSWORD for Windows, and APPLE_ID +
+# APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID for an Apple Developer ID and
+# notarisation. electron-builder reads all of them from the environment.
 
 name: Release
 
