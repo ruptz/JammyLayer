@@ -132,12 +132,6 @@ inside the install directory:
 `settings.json` holds the client ID and secret; `tokens.json` holds the refresh
 token. Nothing is sent anywhere except to Spotify.
 
-> **Upgrading from a build called `spotify-obs-overlay`?** Electron derives that
-> folder from the app name, so the rename moved it. The app copies both files
-> over from the old folder on first launch — once, and never over a file that
-> already exists, so it cannot clobber newer state. Delete the old folder by
-> hand once you have confirmed the new one works.
-
 ### 3. Add it to OBS
 
 In OBS: **Sources → + → Browser**.
