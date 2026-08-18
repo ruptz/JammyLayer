@@ -14,6 +14,14 @@
 # secrets: CSC_LINK + CSC_KEY_PASSWORD for Windows, and APPLE_ID +
 # APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID for an Apple Developer ID and
 # notarisation. electron-builder reads all of them from the environment.
+#
+# Two things in package.json's "build" exist for this workflow, and package.json
+# cannot carry a comment saying so:
+#   - "publish": null stops electron-builder publishing on its own. A
+#     "repository" field is enough for it to infer a GitHub publisher and try to
+#     upload during a tagged CI build, which would race the gh step below.
+#   - mac.artifactName puts ${arch} in the name. The macOS job builds both
+#     architectures, and without it the second would overwrite the first.
 
 name: Release
 
@@ -64,7 +72,8 @@ jobs:
           - name: macos
             os: macos-latest
             # The runner is Apple Silicon; without both arches an Intel Mac gets
-            # a .dmg it cannot open.
+            # a .dmg it cannot open. mac.artifactName in package.json keeps the
+            # two builds from landing on the same filename.
             args: --mac --x64 --arm64
             files: dist/*.dmg
           - name: linux

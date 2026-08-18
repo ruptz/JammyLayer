@@ -26,7 +26,6 @@
   "build": {
     "appId": "com.jammylayer.app",
     "productName": "JammyLayer",
-    "//publish": "The release workflow uploads with gh. Without this, electron-builder infers a GitHub publisher from \"repository\" and tries to publish on its own during a tagged CI build.",
     "publish": null,
     "files": [
       "electron/**/*",
@@ -44,7 +43,6 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.utilities",
-      "//artifactName": "The release build produces both architectures, so the arch has to be in the name or the second one overwrites the first.",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "linux": {
