@@ -30,9 +30,12 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
-# gh needs this to create the release and upload to it.
+# Read-only by default. The build jobs run `npm ci`, which executes whatever
+# install scripts the dependency tree carries, and there is no reason for that
+# to hold a token that can write to the repository. Only the release job is
+# granted write, and only because gh has to create the release.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # electron-builder takes the version from package.json, not from the tag, so a
@@ -111,6 +114,8 @@ jobs:
   release:
     name: Draft release
     needs: build
+    permissions:
+      contents: write
     # Runs even if one platform failed, so a broken macOS build cannot hold up a
     # working Windows one. The release is a draft — check what is attached
     # before publishing it.
