@@ -65,7 +65,7 @@ open the app's settings and copy the **Client ID** and **Client Secret**.
 ### 2. Install the app and connect it
 
 Download the installer for your machine from the [latest
-release](https://github.com/ruptz/SpotifyOverlay/releases/latest):
+release](https://github.com/ruptz/JammyLayer/releases/latest):
 
 | | File | |
 |---|---|---|
