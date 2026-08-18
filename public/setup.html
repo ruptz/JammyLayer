@@ -3,263 +3,502 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Now Playing overlay — setup</title>
+<title>JammyLayer</title>
+<link rel="icon" href="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/setup.css">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="topbar__inner">
-    <div class="brand">
-      <span class="brand__mark" aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="1" y="1" width="18" height="18" rx="5" fill="currentColor" opacity="0.16"/>
-          <path d="M6 12.5V7.5M9 14V6M12 12V8M15 10.5v-1" stroke="currentColor"
-                stroke-width="1.6" stroke-linecap="round"/>
+<div class="deck">
+
+  <!-- ═══════════════════════════════════════════════════════ masthead ══ -->
+  <header class="mast">
+    <h1 class="mast__word" id="wordmark">Jammylayer</h1>
+
+    <div class="mast__strip">
+      <img class="mast__mark" src="/logo.png" alt="" width="52" height="52" decoding="async">
+
+      <p class="mast__what">Spotify <i aria-hidden="true">→</i> OBS browser source</p>
+
+      <dl class="stats">
+        <div class="stat"><dt>Source</dt><dd id="statSize">—</dd></div>
+        <div class="stat"><dt>Surface</dt><dd id="statSurface">Glass</dd></div>
+        <div class="stat"><dt>Scale</dt><dd id="statScale">1.00×</dd></div>
+      </dl>
+
+      <a class="btn btn--accent" id="heroConnect" href="/login">Connect Spotify</a>
+      <button class="btn btn--accent" id="heroCopy" type="button" hidden>Copy overlay URL</button>
+
+      <!-- Desktop build only: these are about the app window, which nothing
+           else has. Unhidden once /api/config says so. -->
+      <button class="btn btn--icon" id="prefsBtn" type="button" hidden
+              title="App settings" aria-label="App settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+             stroke-linecap="square" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.4"/>
+          <path d="M12 2.8v3.2M12 18v3.2M21.2 12H18M6 12H2.8M18.5 5.5l-2.3 2.3M7.8 16.2l-2.3 2.3M18.5 18.5l-2.3-2.3M7.8 7.8 5.5 5.5"/>
         </svg>
-      </span>
-      <span class="brand__name">Now Playing</span>
-      <span class="brand__sep" aria-hidden="true">/</span>
-      <span class="brand__page">Setup</span>
+      </button>
     </div>
-    <p class="status" id="statusPill" data-tone="wait">Checking…</p>
-  </div>
-</header>
+  </header>
 
-<div class="layout">
-  <main class="layout__main">
+  <!-- ═══════════════════════════ index — setup really is a sequence ══ -->
+  <nav class="rail" aria-label="Sections">
+    <ol class="rail__list">
+      <li hidden id="railKeys"><a href="#sec-keys"><b>01</b><span>Keys</span></a></li>
+      <li><a href="#sec-account"><b>02</b><span>Account</span></a></li>
+      <li><a href="#sec-design"><b>03</b><span>Design</span></a></li>
+      <li><a href="#sec-idle"><b>04</b><span>Idle</span></a></li>
+      <li><a href="#sec-output"><b>05</b><span>Output</span></a></li>
+    </ol>
 
-    <section class="group">
-      <div class="group__head">
-        <h2>Spotify account</h2>
-        <p>Authorize the overlay to read what you are playing. The token is stored on this server only.</p>
-      </div>
+    <p class="pulse" id="lamp" data-tone="wait">
+      <i aria-hidden="true"></i><span id="lampText">Checking</span>
+    </p>
+  </nav>
 
-      <div class="rows">
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Client credentials</span>
-            <span class="row__help">Set from <code>.env</code> at startup</span>
+  <!-- ═══════════════════════════════════════════════════ the controls ══ -->
+  <main class="main">
+
+    <!-- Desktop build only: a packaged app has no .env to edit, so credentials
+         are entered here. Hidden when the server reads them from the
+         environment, which is what every container deployment does. -->
+    <section class="sec" id="sec-keys" hidden>
+      <header class="sec__hd">
+        <span class="sec__no">01</span>
+        <h2 class="sec__title">Keys</h2>
+        <p class="sec__note">From your app on the
+          <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">Spotify developer dashboard</a>.
+          They stay on this machine and are sent only to Spotify.</p>
+      </header>
+
+      <div class="sec__body">
+        <div class="field field--stack">
+          <label class="field__label" for="clientId">Client ID</label>
+          <input class="input input--mono" type="text" id="clientId"
+                 autocomplete="off" spellcheck="false" placeholder="32 hex characters">
+        </div>
+
+        <div class="field field--stack">
+          <label class="field__label" for="clientSecret">Client secret</label>
+          <input class="input input--mono" type="password" id="clientSecret"
+                 autocomplete="off" spellcheck="false" placeholder="from the same page">
+          <p class="field__help" id="secretHelp">Never shown again once saved.</p>
+        </div>
+
+        <div class="field field--stack">
+          <span class="field__label">Redirect URI to register</span>
+          <div class="copy">
+            <input class="input input--mono" type="text" id="redirectUriHint" readonly spellcheck="false"
+                   aria-label="Redirect URI to register">
+            <button class="btn" id="copyRedirectBtn" type="button">Copy</button>
           </div>
-          <span class="state" id="credState">—</span>
+          <p class="field__help">Spotify matches this character for character.</p>
         </div>
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Authorization</span>
-            <span class="row__help">Refresh token held on the server</span>
-          </div>
-          <span class="state" id="authState">—</span>
-        </div>
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Playing on</span>
-            <span class="row__help">Active Spotify device</span>
-          </div>
-          <span class="state" id="deviceState">—</span>
-        </div>
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Current track</span>
-          </div>
-          <span class="state state--wide" id="trackState">—</span>
-        </div>
-      </div>
 
-      <p class="banner banner--danger" id="alert" hidden></p>
+        <p class="note" id="credsNote" hidden></p>
 
-      <div class="group__foot">
-        <div class="group__foot-text">
-          Redirect URI for this server: <code id="redirectUri">—</code>
-          <span class="hint">Must match your Spotify app exactly.</span>
-        </div>
-        <div class="btns">
-          <a class="btn btn--primary" id="connectBtn" href="/login">Connect Spotify</a>
-          <button class="btn" id="disconnectBtn" type="button" hidden>Disconnect</button>
+        <div class="sec__act">
+          <button class="btn btn--solid" id="saveCredsBtn" type="button">Save credentials</button>
         </div>
       </div>
     </section>
 
-    <section class="group">
-      <div class="group__head">
-        <h2>Appearance</h2>
-        <p>Every change is written into the overlay URL. Nothing is stored server-side.</p>
+    <section class="sec" id="sec-account" data-state="wait">
+      <header class="sec__hd">
+        <span class="sec__no">02</span>
+        <h2 class="sec__title">Account</h2>
+        <p class="sec__note">Authorize JammyLayer to read what you are playing. The refresh
+          token is kept on this machine and nowhere else.</p>
+      </header>
+
+      <div class="sec__body">
+        <div class="now" id="now">
+          <span class="now__art" id="nowSleeve">
+            <img id="nowArt" alt="" decoding="async">
+          </span>
+          <span class="now__meta">
+            <span class="now__title" id="nowTitle">Not connected</span>
+            <span class="now__sub" id="nowSub">Connect your account to read playback</span>
+            <span class="now__bar" aria-hidden="true"><i id="nowFill"></i></span>
+          </span>
+          <span class="now__time mono" id="nowTime"></span>
+        </div>
+
+        <dl class="facts">
+          <div class="fact">
+            <dt>Client keys</dt>
+            <dd class="state" id="credState">—</dd>
+          </div>
+          <div class="fact">
+            <dt>Authorization</dt>
+            <dd class="state" id="authState">—</dd>
+          </div>
+          <div class="fact">
+            <dt>Playing on</dt>
+            <dd class="state" id="deviceState">—</dd>
+          </div>
+          <div class="fact">
+            <dt>Redirect URI</dt>
+            <dd class="state mono" id="redirectUri">—</dd>
+          </div>
+        </dl>
+
+        <p class="note note--bad" id="alert" hidden></p>
+
+        <div class="sec__act" id="accountFoot" hidden>
+          <button class="btn" id="disconnectBtn" type="button">Disconnect</button>
+          <span class="sec__act-note">Forgets the refresh token on this machine.</span>
+        </div>
       </div>
+    </section>
 
-      <div class="rows">
-        <div class="row row--stack">
-          <div class="row__text">
-            <span class="row__label">Surface</span>
-            <span class="row__help">
-              Glass refracts a blurred copy of the album art behind the panel.
-              Bare drops the panel and sets type straight on your footage.
-              Art bleed makes the sleeve itself the background.
-            </span>
-          </div>
-          <div class="segments" data-param="surface">
-            <label><input type="radio" name="surface" value="glass" checked><span>Glass</span></label>
-            <label><input type="radio" name="surface" value="bare"><span>Bare</span></label>
-            <label><input type="radio" name="surface" value="bleed"><span>Art bleed</span></label>
+    <section class="sec" id="sec-design">
+      <header class="sec__hd">
+        <span class="sec__no">03</span>
+        <h2 class="sec__title">Design</h2>
+        <p class="sec__note">How the card looks over your footage. Nothing here is stored on the
+          server — each change is written into the overlay URL, so the URL <em>is</em> the
+          configuration.</p>
+        <button class="btn btn--ghost btn--sm sec__reset" id="resetBtn" type="button">Reset</button>
+      </header>
+
+      <div class="sec__body">
+        <div class="field field--stack">
+          <span class="field__label">Surface</span>
+          <p class="field__help">What the type sits on. Glass refracts a blurred copy of the
+            sleeve, bare drops the panel entirely, art bleed makes the sleeve the background.</p>
+          <div class="opts" data-param="surface">
+            <label class="opt">
+              <input type="radio" name="surface" value="glass" checked>
+              <span class="opt__box">
+                <svg viewBox="0 0 56 36" aria-hidden="true">
+                  <ellipse cx="28" cy="18" rx="22" ry="11" fill="currentColor" opacity=".16"/>
+                  <rect x="9" y="9" width="38" height="18" fill="currentColor" opacity=".12"
+                        stroke="currentColor" stroke-opacity=".55"/>
+                  <rect x="13" y="13" width="10" height="10" fill="currentColor" opacity=".72"/>
+                  <rect x="27" y="14" width="15" height="2.5" fill="currentColor" opacity=".82"/>
+                  <rect x="27" y="20" width="9" height="2" fill="currentColor" opacity=".45"/>
+                </svg>
+                <span class="opt__name">Glass</span>
+              </span>
+            </label>
+            <label class="opt">
+              <input type="radio" name="surface" value="bare">
+              <span class="opt__box">
+                <svg viewBox="0 0 56 36" aria-hidden="true">
+                  <rect x="13" y="13" width="10" height="10" fill="currentColor" opacity=".72"/>
+                  <rect x="27" y="14" width="15" height="2.5" fill="currentColor" opacity=".82"/>
+                  <rect x="27" y="20" width="9" height="2" fill="currentColor" opacity=".45"/>
+                </svg>
+                <span class="opt__name">Bare</span>
+              </span>
+            </label>
+            <label class="opt">
+              <input type="radio" name="surface" value="bleed">
+              <span class="opt__box">
+                <svg viewBox="0 0 56 36" aria-hidden="true">
+                  <rect x="9" y="9" width="38" height="18" fill="currentColor" opacity=".34"/>
+                  <rect x="13" y="13" width="10" height="10" fill="currentColor" opacity=".9"/>
+                  <rect x="27" y="14" width="15" height="2.5" fill="currentColor" opacity=".95"/>
+                  <rect x="27" y="20" width="9" height="2" fill="currentColor" opacity=".6"/>
+                </svg>
+                <span class="opt__name">Art bleed</span>
+              </span>
+            </label>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Layout</span>
-            <span class="row__help">Arrangement of art, text and transport</span>
-          </div>
-          <div class="segments" data-param="layout">
-            <label><input type="radio" name="layout" value="transport" checked><span>Transport</span></label>
-            <label><input type="radio" name="layout" value="strip"><span>Strip</span></label>
-            <label><input type="radio" name="layout" value="stack"><span>Stack</span></label>
+        <div class="field field--stack">
+          <span class="field__label">Layout</span>
+          <p class="field__help">How art, type and the transport are arranged — and how wide
+            the source ends up.</p>
+          <div class="opts" data-param="layout">
+            <label class="opt">
+              <input type="radio" name="layout" value="transport" checked>
+              <span class="opt__box">
+                <svg viewBox="0 0 56 36" aria-hidden="true">
+                  <rect x="4.5" y="8.5" width="47" height="19" stroke="currentColor"
+                        stroke-opacity=".32" fill="none"/>
+                  <rect x="8" y="12" width="12" height="12" fill="currentColor" opacity=".72"/>
+                  <rect x="24" y="12.5" width="19" height="2.5" fill="currentColor" opacity=".85"/>
+                  <rect x="24" y="17.5" width="12" height="2" fill="currentColor" opacity=".45"/>
+                  <rect x="24" y="22" width="22" height="2" fill="currentColor" opacity=".3"/>
+                </svg>
+                <span class="opt__name">Transport</span>
+              </span>
+            </label>
+            <label class="opt">
+              <input type="radio" name="layout" value="strip">
+              <span class="opt__box">
+                <svg viewBox="0 0 56 36" aria-hidden="true">
+                  <rect x="1.5" y="12.5" width="53" height="11" stroke="currentColor"
+                        stroke-opacity=".32" fill="none"/>
+                  <rect x="5" y="14" width="8" height="8" fill="currentColor" opacity=".72"/>
+                  <rect x="16" y="16" width="14" height="2.5" fill="currentColor" opacity=".85"/>
+                  <rect x="33" y="16.5" width="7" height="2" fill="currentColor" opacity=".45"/>
+                  <rect x="43" y="16.5" width="8" height="2" fill="currentColor" opacity=".3"/>
+                </svg>
+                <span class="opt__name">Strip</span>
+              </span>
+            </label>
+            <label class="opt">
+              <input type="radio" name="layout" value="stack">
+              <span class="opt__box">
+                <svg viewBox="0 0 56 36" aria-hidden="true">
+                  <rect x="17.5" y="1.5" width="21" height="33" stroke="currentColor"
+                        stroke-opacity=".32" fill="none"/>
+                  <rect x="20" y="4" width="16" height="16" fill="currentColor" opacity=".72"/>
+                  <rect x="20" y="23" width="14" height="2.5" fill="currentColor" opacity=".85"/>
+                  <rect x="20" y="27.5" width="9" height="2" fill="currentColor" opacity=".45"/>
+                  <rect x="20" y="31" width="16" height="2" fill="currentColor" opacity=".3"/>
+                </svg>
+                <span class="opt__name">Stack</span>
+              </span>
+            </label>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Theme</span>
-            <span class="row__help">Dark or light card</span>
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Theme</span>
+            <p class="field__help">Dark or light card</p>
           </div>
-          <div class="segments" data-param="theme">
+          <div class="seg" data-param="theme">
             <label><input type="radio" name="theme" value="ink" checked><span>Ink</span></label>
             <label><input type="radio" name="theme" value="paper"><span>Paper</span></label>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Anchor</span>
-            <span class="row__help">Which corner the card grows from</span>
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Anchor</span>
+            <p class="field__help">Which corner the card grows from</p>
           </div>
-          <div class="segments" data-param="align">
+          <div class="seg" data-param="align">
             <label><input type="radio" name="align" value="left" checked><span>Left</span></label>
             <label><input type="radio" name="align" value="right"><span>Right</span></label>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Album art</span>
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Album art</span>
+            <p class="field__help">Hiding it narrows the source</p>
           </div>
-          <div class="segments" data-param="art">
+          <div class="seg" data-param="art">
             <label><input type="radio" name="art" value="on" checked><span>Show</span></label>
             <label><input type="radio" name="art" value="off"><span>Hide</span></label>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <label class="row__label" for="scale">Size</label>
-            <span class="row__help">Scales the whole card, text included</span>
+        <div class="field">
+          <div class="field__text">
+            <label class="field__label" for="scale">Size</label>
+            <p class="field__help">Scales the whole card, type included</p>
           </div>
           <div class="slider">
             <input type="range" id="scale" min="0.5" max="2.5" step="0.05" value="1">
-            <output id="scaleOut">1.00×</output>
+            <output class="mono" id="scaleOut" for="scale">1.00×</output>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <label class="row__label" for="width">Card width</label>
-            <span class="row__help">Leave empty to size from the layout</span>
+        <div class="field">
+          <div class="field__text">
+            <label class="field__label" for="width">Card width</label>
+            <p class="field__help">Leave empty to size from the layout</p>
           </div>
-          <input class="input input--sm" type="number" id="width" min="200" max="1200" step="10" placeholder="auto">
+          <div class="unit">
+            <input class="input input--num" type="number" id="width" min="200" max="1200" step="10" placeholder="auto">
+            <span class="unit__suffix">px</span>
+          </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <label class="row__label" for="accent">Accent</label>
-            <span class="row__help">Leave on <code>auto</code> to pull a colour from each cover</span>
+        <div class="field">
+          <div class="field__text">
+            <label class="field__label" for="accent">Accent</label>
+            <p class="field__help">Pulled from each sleeve unless you pin it</p>
           </div>
-          <input class="input input--sm" type="text" id="accent" value="auto" spellcheck="false" placeholder="auto or #ff5500">
+          <div class="pick">
+            <input class="input input--mono input--hex" type="text" id="accent" value="auto"
+                   spellcheck="false" placeholder="auto">
+            <label class="pick__swatch" id="swatchLabel">
+              <input type="color" id="accentPick" value="#8e86ff" aria-label="Pick an accent colour">
+            </label>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="group">
-      <div class="group__head">
-        <h2>Behaviour</h2>
-        <p>What the overlay does when playback stops or nothing is loaded.</p>
-      </div>
+    <section class="sec" id="sec-idle">
+      <header class="sec__hd">
+        <span class="sec__no">04</span>
+        <h2 class="sec__title">Idle</h2>
+        <p class="sec__note">What the overlay does when playback stops. The monitor always keeps
+          a card on screen so you can judge it — these apply in OBS.</p>
+      </header>
 
-      <div class="rows">
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">Progress bar</span>
-            <span class="row__help">Ruler ticks are spaced by real seconds, so density shows track length</span>
+      <div class="sec__body">
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Progress bar</span>
+            <p class="field__help">Ruler ticks are spaced by real seconds, so their density
+              shows how long the track is</p>
           </div>
-          <div class="segments" data-param="ticks">
+          <div class="seg" data-param="ticks">
             <label><input type="radio" name="ticks" value="on" checked><span>Ticks</span></label>
             <label><input type="radio" name="ticks" value="off"><span>Hairline</span></label>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">When paused</span>
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Paused</span>
+            <p class="field__help">A track is loaded but stopped</p>
           </div>
-          <div class="segments" data-param="paused">
+          <div class="seg" data-param="paused">
             <label><input type="radio" name="paused" value="dim" checked><span>Dim</span></label>
-            <label><input type="radio" name="paused" value="show"><span>No change</span></label>
+            <label><input type="radio" name="paused" value="show"><span>Keep</span></label>
             <label><input type="radio" name="paused" value="hide"><span>Hide</span></label>
           </div>
         </div>
 
-        <div class="row">
-          <div class="row__text">
-            <span class="row__label">When nothing is playing</span>
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Nothing playing</span>
+            <p class="field__help">Spotify is closed or idle</p>
           </div>
-          <div class="segments" data-param="idle">
+          <div class="seg" data-param="idle">
             <label><input type="radio" name="idle" value="hide" checked><span>Hide</span></label>
             <label><input type="radio" name="idle" value="show"><span>Placeholder</span></label>
           </div>
         </div>
       </div>
     </section>
-  </main>
 
-  <aside class="layout__side">
-    <section class="group group--flush">
-      <div class="group__head">
-        <h2>Preview</h2>
-        <p>Runs a demo track, so you can judge it without playing anything.</p>
-      </div>
+    <section class="sec sec--last" id="sec-output">
+      <header class="sec__hd">
+        <span class="sec__no">05</span>
+        <h2 class="sec__title">Output</h2>
+        <p class="sec__note">One URL, pasted into an OBS <em>Browser</em> source.</p>
+      </header>
 
-      <div class="preview">
-        <div class="segments segments--tight" id="backdrop">
-          <label><input type="radio" name="backdrop" value="grid" checked><span>Transparent</span></label>
-          <label><input type="radio" name="backdrop" value="dark"><span>Dark scene</span></label>
-          <label><input type="radio" name="backdrop" value="bright"><span>Bright scene</span></label>
-        </div>
-        <div class="viewport" id="viewport" data-backdrop="grid">
-          <iframe id="preview" title="Overlay preview" tabindex="-1"></iframe>
-        </div>
-      </div>
-
-      <div class="group__head group__head--tight">
-        <h2>Add to OBS</h2>
-      </div>
-
-      <div class="obs">
-        <label class="obs__label" for="overlayUrl">Browser source URL</label>
-        <div class="copy">
-          <input class="input input--mono" type="text" id="overlayUrl" readonly spellcheck="false">
-          <button class="btn btn--icon" id="copyBtn" type="button">Copy</button>
+      <div class="sec__body">
+        <div class="copy copy--wide">
+          <input class="input input--mono input--url" type="text" id="overlayUrl" readonly spellcheck="false"
+                 aria-label="Browser source URL">
+          <button class="btn btn--solid" id="copyBtn" type="button">Copy</button>
+          <a class="btn" id="openOverlay" href="/" target="_blank" rel="noreferrer">
+            Open
+            <svg class="btn__arrow" width="12" height="12" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+              <path d="M4 9 9 4M4.6 4H9v4.4" stroke="currentColor" stroke-width="1.7"
+                    stroke-linecap="square"/>
+            </svg>
+          </a>
         </div>
 
-        <dl class="facts">
-          <dt>Source size</dt>
-          <dd id="sourceSize">—</dd>
-        </dl>
-
-        <ul class="checks">
-          <li>Leave <em>Shutdown source when not visible</em> unchecked so the overlay keeps its connection.</li>
-          <li>The page is transparent on its own — the <em>Custom CSS</em> box can stay empty.</li>
-          <li>After changing anything here, right-click the source and choose <em>Refresh cache of current page</em>.</li>
-        </ul>
+        <ol class="steps">
+          <li>Set the source to <b class="mono" id="stepSize">—</b>.</li>
+          <li>Leave <em>Shutdown source when not visible</em> off, so the card keeps its connection.</li>
+          <li><em>Custom CSS</em> can stay empty — the page is already transparent.</li>
+          <li>After any change here, right-click the source and choose <em>Refresh cache of current page</em>.</li>
+        </ol>
       </div>
     </section>
+
+    <!-- The end of the page, which is where a colophon goes: you have finished
+         setting up by the time you reach it. -->
+    <footer class="colophon">
+      <img class="colophon__mark" src="/logo.png" alt="" width="36" height="36" decoding="async">
+
+      <p class="colophon__text">Free, self-hosted, and no account of mine to sign into.
+        If it earns its place on your stream, there is a tip jar.</p>
+
+      <a class="btn btn--solid" href="https://ko-fi.com/ruptz" target="_blank" rel="noreferrer noopener">
+        Support on Ko-fi
+        <svg class="btn__arrow" width="12" height="12" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+          <path d="M4 9 9 4M4.6 4H9v4.4" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="square"/>
+        </svg>
+      </a>
+    </footer>
+  </main>
+
+  <!-- ═════════════════════════════════════════ the picture it makes ══ -->
+  <aside class="stage">
+    <div class="monitor">
+      <div class="monitor__bar">
+        <span class="tally" id="tally" data-live="false">
+          <i aria-hidden="true"></i><b id="tallyText">Demo</b>
+        </span>
+        <span class="monitor__track" id="tallyTrack">Preview tracks</span>
+        <span class="monitor__size mono" id="sourceSize">—</span>
+      </div>
+
+      <div class="screen" id="viewport" data-backdrop="grid">
+        <span class="crop crop--tl" aria-hidden="true"></span>
+        <span class="crop crop--tr" aria-hidden="true"></span>
+        <span class="crop crop--bl" aria-hidden="true"></span>
+        <span class="crop crop--br" aria-hidden="true"></span>
+        <iframe id="preview" title="Overlay preview" tabindex="-1"></iframe>
+      </div>
+
+      <div class="monitor__foot">
+        <div class="switch">
+          <span class="switch__cap">Behind</span>
+          <div class="seg seg--sm" id="backdrop">
+            <label><input type="radio" name="backdrop" value="grid" checked><span>Nothing</span></label>
+            <label><input type="radio" name="backdrop" value="dark"><span>Dark</span></label>
+            <label><input type="radio" name="backdrop" value="bright"><span>Bright</span></label>
+          </div>
+        </div>
+
+        <div class="switch">
+          <span class="switch__cap">Feed</span>
+          <div class="seg seg--sm" id="feed">
+            <label><input type="radio" name="feed" value="live"><span>Spotify</span></label>
+            <label><input type="radio" name="feed" value="demo" checked><span>Demo</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
   </aside>
 </div>
+
+<!-- ═══════════════════════════════════════════════════ app settings ══ -->
+<dialog class="sheet" id="prefs" aria-labelledby="prefsTitle">
+  <form method="dialog">
+    <header class="sheet__hd">
+      <span class="sheet__tag">JammyLayer</span>
+      <h2 class="sheet__title" id="prefsTitle">App settings</h2>
+      <button class="btn btn--ghost btn--sm sheet__close" value="close">Close</button>
+    </header>
+
+    <div class="sheet__body">
+      <div class="field">
+        <div class="field__text">
+          <span class="field__label">Closing the window</span>
+          <p class="field__help">Keeping it running leaves the overlay live in OBS and puts
+            JammyLayer in the system tray. Quitting stops the overlay until you open the
+            app again.</p>
+        </div>
+        <div class="seg" data-param="closeMode">
+          <label><input type="radio" name="closeMode" value="quit" checked><span>Quits</span></label>
+          <label><input type="radio" name="closeMode" value="tray"><span>Keeps running</span></label>
+        </div>
+      </div>
+
+      <p class="note" id="prefsNote" hidden></p>
+
+      <p class="sheet__foot">Starting with your machine is in the tray menu, under
+        <b>Start when I sign in</b>.</p>
+    </div>
+  </form>
+</dialog>
 
 <script src="/setup.js"></script>
 </body>

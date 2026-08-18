@@ -2,7 +2,10 @@
 .gitignore
 .env
 *.md
+build
 data
+dist
+electron
 node_modules
 npm-debug.log
 Dockerfile

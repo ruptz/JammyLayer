@@ -1,10 +1,10 @@
-name: spotify-overlay
+name: jammylayer
 
 services:
   overlay:
     build: .
-    image: spotify-obs-overlay:latest
-    container_name: spotify-overlay
+    image: jammylayer:latest
+    container_name: jammylayer
     restart: unless-stopped
     ports:
       # Bound to all interfaces so other machines on the LAN can reach the
@@ -21,4 +21,8 @@ services:
       - tokens:/data
 
 volumes:
+  # Pinned to the pre-rename name on purpose. Compose prefixes volumes with the
+  # project name, so renaming the project to jammylayer would have quietly
+  # created an empty volume and lost the refresh token on an existing deploy.
   tokens:
+    name: spotify-overlay_tokens

@@ -4,3 +4,7 @@
 data/
 node_modules/
 npm-debug.log*
+
+# electron-builder output, and the app icon it generates from make-icon.mjs
+dist/
+build/

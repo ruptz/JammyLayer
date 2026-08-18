@@ -53,6 +53,12 @@ html, body {
   overflow: hidden;
 }
 
+/* Nothing on the card asks for a colour scheme — but a document that declares
+   none gets an opaque white canvas when it is embedded, which is exactly what
+   the setup page does to show the preview. OBS composites its own transparency
+   and never sees this; the monitor's backdrop switch only works because of it. */
+html { color-scheme: dark; }
+
 body {
   display: flex;
   justify-content: flex-start;

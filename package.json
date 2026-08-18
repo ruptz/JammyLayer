@@ -1,14 +1,59 @@
 {
-  "name": "spotify-obs-overlay",
+  "name": "jammylayer",
+  "productName": "JammyLayer",
   "version": "1.0.0",
   "private": true,
-  "description": "Self-hosted Spotify now-playing overlay for OBS browser sources",
+  "description": "JammyLayer — self-hosted Spotify now-playing overlay for OBS browser sources",
+  "author": "Benji",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ruptz/SpotifyOverlay.git"
+  },
+  "funding": "https://ko-fi.com/ruptz",
   "type": "module",
+  "main": "electron/main.js",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env server/index.js",
-    "dev": "node --env-file-if-exists=.env --watch server/index.js"
+    "start": "node --env-file-if-exists=.env server/bin.js",
+    "dev": "node --env-file-if-exists=.env --watch server/bin.js",
+    "desktop": "electron .",
+    "icon": "node electron/make-icon.mjs",
+    "predist": "npm run icon",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.jammylayer.app",
+    "productName": "JammyLayer",
+    "//publish": "The release workflow uploads with gh. Without this, electron-builder infers a GitHub publisher from \"repository\" and tries to publish on its own during a tagged CI build.",
+    "publish": null,
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities",
+      "//artifactName": "The release build produces both architectures, so the arch has to be in the name or the second one overwrites the first.",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "AudioVideo"
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3"
   }
 }

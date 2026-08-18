@@ -1,0 +1,118 @@
+# Builds the desktop installers and attaches them to a draft GitHub Release, so
+# nobody needs Node or npm to run JammyLayer — they download one file.
+#
+# Cut a release by pushing a tag that matches the version in package.json:
+#
+#   npm version 1.1.0        # bumps package.json and commits
+#   git push --follow-tags
+#
+# Or run it from the Actions tab to build the installers without releasing
+# anything: the build jobs still upload their output as workflow artifacts.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# gh needs this to create the release and upload to it.
+permissions:
+  contents: write
+
+jobs:
+  # electron-builder takes the version from package.json, not from the tag, so a
+  # tag that disagrees would ship installers named after the previous release.
+  # One cheap job up front beats finding out from a user.
+  verify:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME matches package.json"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Windows is the tested platform. A failure on either of the others should
+      # not stop it shipping.
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            args: --win
+            files: dist/*.exe
+          - name: macos
+            os: macos-latest
+            # The runner is Apple Silicon; without both arches an Intel Mac gets
+            # a .dmg it cannot open.
+            args: --mac --x64 --arm64
+            files: dist/*.dmg
+          - name: linux
+            os: ubuntu-latest
+            args: --linux
+            files: dist/*.AppImage
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The server has no runtime dependencies; this is electron and
+      # electron-builder, which exist only to produce the installer.
+      - run: npm ci
+
+      # `dist` runs `predist` -> `npm run icon` first, which regenerates
+      # build/icon.png from public/logo.png.
+      - name: Build installer
+        run: npm run dist -- ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.name }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: build
+    # Runs even if one platform failed, so a broken macOS build cannot hold up a
+    # working Windows one. The release is a draft — check what is attached
+    # before publishing it.
+    if: startsWith(github.ref, 'refs/tags/') && !cancelled()
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          pattern: installer-*
+          merge-multiple: true
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -la installers
+          gh release create "$GITHUB_REF_NAME" installers/* \
+            --draft \
+            --generate-notes \
+            --title "JammyLayer $GITHUB_REF_NAME"

@@ -2,8 +2,9 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config, configured } from './config.js';
+import { applySettings, config, configured } from './config.js';
 import * as spotify from './spotify.js';
+import * as store from './store.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 
@@ -36,14 +37,22 @@ function sendJson(res, status, data) {
   });
 }
 
-function page(title, heading, body, accentClass = '') {
+const BACK_TO_SETUP = '<p class="notice__act"><a class="btn btn--accent" href="/setup">Back to setup</a></p>';
+
+function page(title, heading, body, { tone = '', tag = 'JammyLayer', act = BACK_TO_SETUP } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title}</title><link rel="stylesheet" href="/setup.css"></head>
-<body class="notice"><main class="notice__card ${accentClass}">
-<h1>${heading}</h1>${body}
-<p><a class="btn" href="/setup">Back to setup</a></p>
+<title>${title}</title>
+<link rel="icon" href="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/setup.css"></head>
+<body class="notice"><main class="notice__card ${tone}">
+<img class="notice__mark" src="/logo.png" alt="" width="60" height="60">
+<p class="notice__tag">${tag}</p>
+<h1>${heading}</h1>${body}${act}
 </main></body></html>`;
 }
 
@@ -144,6 +153,51 @@ function serveEvents(req, res) {
   req.on('error', close);
 }
 
+const connectWatchers = new Set();
+
+/**
+ * Fires once the authorization code has been traded for tokens. The desktop
+ * wrapper uses this to pull itself back in front of the browser tab the user
+ * was sent to — the tab has done its job by then, and the app is where the
+ * setup page lives.
+ */
+export function onConnected(listener) {
+  connectWatchers.add(listener);
+  return () => connectWatchers.delete(listener);
+}
+
+const settingsWatchers = new Set();
+
+/**
+ * Fires when a preference is changed from the setup page. Only the desktop
+ * wrapper listens: its tray menu shows the same switch, and a context menu is
+ * built once rather than re-read on open, so it has to be told to rebuild.
+ */
+export function onSettingsChanged(listener) {
+  settingsWatchers.add(listener);
+  return () => settingsWatchers.delete(listener);
+}
+
+function announceSettings() {
+  for (const watcher of settingsWatchers) {
+    try {
+      watcher();
+    } catch (error) {
+      console.error('[jammylayer] settings listener failed:', error);
+    }
+  }
+}
+
+function announceConnected() {
+  for (const watcher of connectWatchers) {
+    try {
+      watcher();
+    } catch (error) {
+      console.error('[jammylayer] connect listener failed:', error);
+    }
+  }
+}
+
 async function handleCallback(res, url) {
   const error = url.searchParams.get('error');
   if (error) {
@@ -151,7 +205,7 @@ async function handleCallback(res, url) {
       res,
       400,
       page('Authorization failed', 'Authorization failed', `<p>Spotify reported: <code>${escapeHtml(error)}</code></p>
-<p>Nothing was saved. Start again from the setup page when you're ready.</p>`, 'is-error'),
+<p>Nothing was saved. Start again when you're ready.</p>`, { tone: 'is-error', tag: 'Step 02 — Account', act: returnAct() }),
       { 'Content-Type': CONTENT_TYPES['.html'] },
     );
   }
@@ -163,7 +217,7 @@ async function handleCallback(res, url) {
       res,
       400,
       page('Authorization failed', 'That link has expired', `<p>Authorization links are valid for ten minutes and can only be used once.
-Open the setup page and select <strong>Connect Spotify</strong> again.</p>`, 'is-error'),
+Select <strong>Connect Spotify</strong> again to start a fresh one.</p>`, { tone: 'is-error', tag: 'Step 02 — Account', act: returnAct() }),
       { 'Content-Type': CONTENT_TYPES['.html'] },
     );
   }
@@ -173,19 +227,40 @@ Open the setup page and select <strong>Connect Spotify</strong> again.</p>`, 'is
     send(
       res,
       200,
-      page('Spotify connected', 'Spotify connected', `<p>The overlay is live. Add it to OBS as a browser source and it will start showing tracks as they play.</p>`),
+      page(
+        'Spotify connected',
+        'Spotify connected',
+        config.desktop
+          ? `<p>JammyLayer has your account and is back in front. You can close this tab.</p>`
+          : `<p>The overlay is live. Add it to OBS as a browser source and it will start showing tracks as they play.</p>`,
+        { tag: 'Step 02 — Account', act: returnAct() },
+      ),
       { 'Content-Type': CONTENT_TYPES['.html'] },
     );
+    // After the response, so a listener that raises a window cannot delay it.
+    announceConnected();
   } catch (err) {
     send(
       res,
       502,
       page('Authorization failed', 'Could not complete authorization', `<p>${escapeHtml(err.message)}</p>
 <p>Check that <code>SPOTIFY_CLIENT_SECRET</code> matches your app and that the redirect URI registered with Spotify is exactly
-<code>${escapeHtml(config.redirectUri)}</code>.</p>`, 'is-error'),
+<code>${escapeHtml(config.redirectUri)}</code>.</p>`, { tone: 'is-error', tag: 'Step 02 — Account', act: returnAct() }),
       { 'Content-Type': CONTENT_TYPES['.html'] },
     );
   }
+}
+
+/**
+ * The desktop build sends people to their real browser to authorize, so this
+ * page opens in a tab that is finished the moment it renders — linking it back
+ * to a setup page that is already open in the app would be sending them the
+ * wrong way. A hosted deployment has no app to return to, so it keeps the link.
+ */
+function returnAct() {
+  return config.desktop
+    ? '<p class="notice__act notice__act--quiet">Close this tab and carry on in the app.</p>'
+    : BACK_TO_SETUP;
 }
 
 function escapeHtml(value) {
@@ -194,7 +269,80 @@ function escapeHtml(value) {
   })[char]);
 }
 
-const server = createServer(async (req, res) => {
+// ------------------------------------------------------------------ credentials
+
+const isLoopback = (req) =>
+  ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '');
+
+async function readJsonBody(req, limit = 8192) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error('Request body too large');
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  } catch {
+    throw new Error('Malformed JSON body');
+  }
+}
+
+/**
+ * Lets the desktop build take client credentials from the setup page, since a
+ * packaged app has no .env to edit. Gated twice: the deployment has to opt in
+ * via ALLOW_SETUP, and the request has to come from this machine.
+ */
+async function handleCredentials(req, res) {
+  if (req.method !== 'POST') return send(res, 405, 'Use POST', { Allow: 'POST' });
+  if (!config.allowSetup) {
+    return sendJson(res, 403, {
+      ok: false,
+      error: 'This deployment takes its credentials from the environment. Set them in .env and restart.',
+    });
+  }
+  if (!isLoopback(req)) {
+    return sendJson(res, 403, { ok: false, error: 'Credentials can only be changed from this machine.' });
+  }
+
+  const body = await readJsonBody(req);
+  const clientId = String(body.clientId ?? '').trim();
+  const clientSecret = String(body.clientSecret ?? '').trim();
+  if (!clientId || !clientSecret) {
+    return sendJson(res, 400, { ok: false, error: 'Both a client ID and a client secret are required.' });
+  }
+
+  await store.saveSettings({ ...(await store.loadSettings()), clientId, clientSecret });
+  applySettings({ clientId, clientSecret });
+  return sendJson(res, 200, { ok: true, configured: configured() });
+}
+
+/**
+  * Desktop-only preferences. Same two gates as the credentials endpoint — the
+  * deployment has to be the desktop build, and the request has to come from this
+  * machine — because on anything else there is no window to close and no tray to
+  * close it to.
+  */
+async function handlePreferences(req, res) {
+  if (req.method !== 'POST') return send(res, 405, 'Use POST', { Allow: 'POST' });
+  if (!config.desktop || !isLoopback(req)) {
+    return sendJson(res, 403, { ok: false, error: 'Preferences are only settable from the desktop app.' });
+  }
+
+  const body = await readJsonBody(req);
+  if (typeof body.closeToTray !== 'boolean') {
+    return sendJson(res, 400, { ok: false, error: 'closeToTray must be true or false.' });
+  }
+
+  const { closeToTray } = body;
+  await store.saveSettings({ ...(await store.loadSettings()), closeToTray });
+  applySettings({ closeToTray });
+  announceSettings();
+  return sendJson(res, 200, { ok: true, closeToTray });
+}
+
+const handler = async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
   const path = url.pathname.replace(/\/+$/, '') || '/';
 
@@ -213,17 +361,30 @@ const server = createServer(async (req, res) => {
       case '/overlay.js':
       case '/setup.css':
       case '/setup.js':
+      case '/logo.png':
         return serveStatic(res, path.slice(1));
       case '/healthz':
         return sendJson(res, 200, { ok: true, configured: configured(), connected: spotify.connected() });
       case '/api/now-playing':
         return sendJson(res, 200, await spotify.refetch());
-      case '/api/config':
+      case '/api/config': {
+        // Drives whether the setup page offers a credentials form or leaves the
+        // user to edit .env.
+        const canEditCredentials = config.allowSetup && isLoopback(req);
+        // Preferences are about the desktop window, so they exist nowhere else.
+        const canEditPreferences = Boolean(config.desktop) && isLoopback(req);
         return sendJson(res, 200, {
           configured: configured(),
           connected: spotify.connected(),
           redirectUri: config.redirectUri,
+          canEditCredentials,
+          canEditPreferences,
+          closeToTray: Boolean(config.closeToTray),
+          // Only echoed back to a machine-local editor, so the form can prefill
+          // and ask for nothing but the secret. Never on a shared deployment.
+          clientId: canEditCredentials ? config.clientId : undefined,
         });
+      }
       case '/events':
         return serveEvents(req, res);
       case '/art':
@@ -233,7 +394,7 @@ const server = createServer(async (req, res) => {
           return send(
             res,
             409,
-            page('Not configured', 'Client credentials are missing', `<p>Set <code>SPOTIFY_CLIENT_ID</code> and <code>SPOTIFY_CLIENT_SECRET</code> in your <code>.env</code>, then restart the container.</p>`, 'is-error'),
+            page('Not configured', 'Client credentials are missing', `<p>Set <code>SPOTIFY_CLIENT_ID</code> and <code>SPOTIFY_CLIENT_SECRET</code> in your <code>.env</code>, then restart the container.</p>`, { tone: 'is-error', tag: 'Step 01 — Keys' }),
             { 'Content-Type': CONTENT_TYPES['.html'] },
           );
         }
@@ -241,39 +402,82 @@ const server = createServer(async (req, res) => {
         return res.end();
       case '/callback':
         return handleCallback(res, url);
+      case '/api/credentials':
+        return handleCredentials(req, res);
+      case '/api/preferences':
+        return handlePreferences(req, res);
       case '/api/disconnect':
         if (req.method !== 'POST') return send(res, 405, 'Use POST', { Allow: 'POST' });
         await spotify.disconnect();
         return sendJson(res, 200, { ok: true });
       case '/favicon.ico':
-        return send(res, 204, '');
+        // Browsers ask for this by convention even when a <link rel="icon">
+        // points elsewhere; answering with the mark beats a blank tab.
+        return serveStatic(res, 'logo.png');
       default:
         return send(res, 404, 'Not found');
     }
   } catch (error) {
-    console.error(`[overlay] ${req.method} ${path} failed:`, error);
+    console.error(`[jammylayer] ${req.method} ${path} failed:`, error);
     if (!res.headersSent) sendJson(res, 500, { ok: false, error: error.message });
     else res.end();
   }
-});
+};
 
-await spotify.init();
+let server = null;
 
-server.listen(config.port, config.host, () => {
-  console.log(`[overlay] listening on http://${config.host}:${config.port}`);
-  console.log(`[overlay] overlay URL   /`);
-  console.log(`[overlay] setup page    /setup`);
-  console.log(`[overlay] redirect URI  ${config.redirectUri}`);
-  if (!configured()) {
-    console.warn('[overlay] SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET are not set — open /setup for instructions');
-  } else if (!spotify.connected()) {
-    console.warn('[overlay] no account connected yet — open /setup and select "Connect Spotify"');
+/** Reachable base URL — what you open for /setup and paste into OBS. */
+export const baseUrl = () => {
+  const host = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
+  return `http://${host}:${config.port}`;
+};
+
+/**
+ * Resolves once the server is actually listening, so both entry points — the
+ * container's bin.js and the desktop wrapper — can surface a real failure
+ * (a port already in use, most often) rather than an unhandled 'error' event.
+ */
+export async function start() {
+  if (server) return server;
+
+  // Loaded here rather than in the desktop wrapper so that running from source
+  // with ALLOW_SETUP=1 also survives a restart. Anything set in the environment
+  // still wins.
+  const settings = await store.loadSettings();
+  if (settings) {
+    applySettings({
+      clientId: settings.clientId,
+      clientSecret: settings.clientSecret,
+      port: settings.port,
+      closeToTray: settings.closeToTray,
+    });
   }
-});
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 3000).unref();
+  await spotify.init();
+  const instance = createServer(handler);
+
+  await new Promise((resolve, reject) => {
+    instance.once('error', reject);
+    instance.listen(config.port, config.host, () => {
+      instance.off('error', reject);
+      resolve();
+    });
+  });
+
+  server = instance;
+  return server;
+}
+
+export async function stop() {
+  if (!server) return;
+  const instance = server;
+  server = null;
+
+  await new Promise((resolve) => {
+    instance.close(resolve);
+    // Overlay clients hold an SSE stream open for as long as OBS is running, so
+    // close() on its own would never finish.
+    instance.closeAllConnections?.();
+    setTimeout(resolve, 3000).unref?.();
   });
 }
