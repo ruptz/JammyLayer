@@ -97,6 +97,10 @@ jobs:
       # build/icon.png from public/logo.png.
       - name: Build installer
         run: npm run dist -- ${{ matrix.args }}
+        env:
+          # There is no signing identity on the runners. Left to itself,
+          # electron-builder goes looking for one on macOS; this stops it.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - uses: actions/upload-artifact@v4
         with:

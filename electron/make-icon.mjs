@@ -1,8 +1,13 @@
 /**
  * Generates build/icon.png for electron-builder, which converts it to the .ico
  * and .icns the installers want. It is the same mark as public/logo.png, only
- * larger: electron-builder refuses anything under 256×256, and the source is a
- * 128px sprite.
+ * larger: electron-builder refuses anything under 512×512 for .icns (256 for
+ * everything else), and the source is a 128px sprite.
+ *
+ * 1024 rather than the 512 macOS demands, because .icns carries a 512@2x entry
+ * and it is still an exact multiple of the 128px source. Windows loses nothing:
+ * box-filtering an integer upscale back down reproduces the source's own pixel
+ * averages, so the small .ico entries are identical either way.
  *
  * Scaling is nearest-neighbour on purpose. The mark has hard edges and flat
  * fills, and doubling it exactly keeps them hard — a smooth filter would just
@@ -12,7 +17,7 @@ import { deflateSync, inflateSync } from 'node:zlib';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-const SIZE = 256;
+const SIZE = 1024;
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 // ------------------------------------------------------------------- decoding
