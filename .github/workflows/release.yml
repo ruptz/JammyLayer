@@ -3,7 +3,7 @@
 #
 # Cut a release by pushing a tag that matches the version in package.json:
 #
-#   npm version 1.1.0        # bumps package.json and commits
+#   npm version 0.2.0        # bumps package.json and commits
 #   git push --follow-tags
 #
 # Or run it from the Actions tab to build the installers without releasing
