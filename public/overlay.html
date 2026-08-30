@@ -31,10 +31,15 @@
 
           <div class="transport">
             <div class="scale" id="scale">
-              <span class="scale__ticks" id="ticks" aria-hidden="true"></span>
-              <span class="scale__played" id="played" aria-hidden="true">
-                <span class="scale__ticks scale__ticks--on" id="ticksOn"></span>
-              </span>
+              <svg class="scale__ruler" id="ruler" width="100%" height="100%" aria-hidden="true">
+                <defs>
+                  <clipPath id="rulerPlayed" clipPathUnits="userSpaceOnUse">
+                    <rect id="rulerClip" x="0" y="0" width="0" height="64"></rect>
+                  </clipPath>
+                </defs>
+                <g class="scale__ticks" id="ticks"></g>
+                <g class="scale__ticks scale__ticks--on" id="ticksOn" clip-path="url(#rulerPlayed)"></g>
+              </svg>
               <span class="scale__head" id="head" aria-hidden="true"></span>
             </div>
             <p class="time">

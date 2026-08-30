@@ -20,9 +20,10 @@ const titleClip = document.getElementById('titleClip');
 const titleEl = document.getElementById('title');
 const subtitleEl = document.getElementById('subtitle');
 const scaleEl = document.getElementById('scale');
+const rulerEl = document.getElementById('ruler');
 const ticksEl = document.getElementById('ticks');
 const ticksOnEl = document.getElementById('ticksOn');
-const playedEl = document.getElementById('played');
+const rulerClipEl = document.getElementById('rulerClip');
 const headEl = document.getElementById('head');
 const elapsedEl = document.getElementById('elapsed');
 const totalEl = document.getElementById('total');
@@ -200,48 +201,70 @@ function applyAccent(img) {
 
 // ------------------------------------------------------------------- tick ruler
 
-// Candidate spacings in seconds; the first one that leaves ticks readable wins.
-const TICK_STEPS = [5, 10, 15, 30, 60, 120, 300];
-const MIN_TICK_GAP = 5.5;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// Candidate spacings in seconds; the first one that keeps ticks at least
+// MIN_TICK_GAP apart *and* under MAX_TICKS total wins. The large steps at the
+// end are what stop an hour-long DJ set collapsing into an aliased smear.
+const TICK_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900];
+const MIN_TICK_GAP = 7;
+const MAX_TICKS = 120;
+
+// Marks are 2px wide, not 1px: a 1px mark drops to a hairline (or vanishes)
+// whenever the SVG's own origin lands on a half device-pixel, which is what read
+// as "split and cut off". 2px + crispEdges always resolves to a solid bar.
+const TICK_W = 2;
+
+// One <rect> per mark. x is pre-rounded to a whole pixel by the caller, so with
+// shape-rendering:crispEdges every tick is identical end to end.
+function buildTicks(group, marks) {
+  const frag = document.createDocumentFragment();
+  for (const m of marks) {
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', m.x);
+    rect.setAttribute('y', m.y);
+    rect.setAttribute('width', m.w);
+    rect.setAttribute('height', m.h);
+    frag.appendChild(rect);
+  }
+  group.textContent = '';
+  group.appendChild(frag);
+}
 
 function paintScale(durationMs) {
   const width = scaleEl.clientWidth;
   const height = scaleEl.clientHeight;
-  if (!width) return;
+  if (!width || !height) return;
 
+  let marks;
   if (params.ticks === 'off' || !durationMs) {
-    const rail = 'linear-gradient(currentColor, currentColor)';
-    for (const el of [ticksEl, ticksOnEl]) {
-      el.style.backgroundImage = rail;
-      el.style.backgroundSize = '100% 2px';
-      el.style.backgroundRepeat = 'repeat-x';
-      el.style.backgroundPosition = '0 100%';
+    // A plain hairline along the bottom edge.
+    marks = [{ x: 0, y: height - 2, w: width, h: 2 }];
+  } else {
+    const step = TICK_STEPS.find(
+      (s) =>
+        (width * s * 1000) / durationMs >= MIN_TICK_GAP &&
+        durationMs / (s * 1000) <= MAX_TICKS,
+    ) ?? TICK_STEPS[TICK_STEPS.length - 1];
+
+    const minorH = Math.max(4, Math.round(height * 0.55));
+    const majorH = Math.max(minorH + 2, height);
+    // Capped so a mis-reported multi-hour duration can't spray the DOM.
+    const count = Math.min(MAX_TICKS, Math.floor(durationMs / (step * 1000)));
+
+    marks = [];
+    for (let i = 0; i <= count; i += 1) {
+      // Round to a whole pixel here, once, so spacing is even end to end and
+      // the last mark lands cleanly inside the rail instead of half off it.
+      const x = Math.min(width - TICK_W, Math.round((width * i * step * 1000) / durationMs));
+      const h = i % 4 === 0 ? majorH : minorH;
+      marks.push({ x, y: height - h, w: TICK_W, h });
     }
-    scaleEl.style.setProperty('--scale-w', `${width}px`);
-    return;
   }
 
-  const minorSeconds = TICK_STEPS.find(
-    (step) => (width * step * 1000) / durationMs >= MIN_TICK_GAP,
-  ) ?? TICK_STEPS[TICK_STEPS.length - 1];
-
-  const minorGap = (width * minorSeconds * 1000) / durationMs;
-  const majorGap = minorGap * 4;
-  const minorHeight = Math.max(3, Math.round(height * 0.45));
-  const majorHeight = Math.max(minorHeight + 2, Math.round(height * 0.85));
-
-  const ruler = (gap) => `repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px ${gap}px)`;
-
-  for (const el of [ticksEl, ticksOnEl]) {
-    el.style.backgroundImage = `${ruler(minorGap)}, ${ruler(majorGap)}`;
-    el.style.backgroundSize = `100% ${minorHeight}px, 100% ${majorHeight}px`;
-    el.style.backgroundRepeat = 'repeat-x, repeat-x';
-    el.style.backgroundPosition = '0 100%, 0 100%';
-  }
-
-  // The played layer sits in a clipping window, so its ruler needs the full
-  // scale width to keep its ticks aligned with the unplayed ones behind it.
-  scaleEl.style.setProperty('--scale-w', `${width}px`);
+  buildTicks(ticksEl, marks);
+  buildTicks(ticksOnEl, marks);
+  updateProgress();
 }
 
 // -------------------------------------------------------------------- title fit
@@ -290,7 +313,10 @@ function updateProgress() {
   const ratio = item.durationMs ? clamp(elapsed / item.durationMs, 0, 1) : 0;
 
   const width = scaleEl.clientWidth;
-  playedEl.style.width = `${ratio * width}px`;
+  // The clip rect reveals the accent ruler up to the playhead. Rounded so the
+  // reveal edge sits on a pixel; the tick it crosses stays crisp, so it reads
+  // as a wipe rather than the shimmer a clipped gradient gave.
+  rulerClipEl.setAttribute('width', Math.round(ratio * width));
   headEl.style.setProperty('--head', `${clamp(ratio * width, 0, Math.max(0, width - 2))}px`);
 
   const second = Math.floor(elapsed / 1000);
@@ -378,7 +404,7 @@ function renderEmpty() {
   totalEl.textContent = '0:00';
   setArt(null);
   paintScale(0);
-  playedEl.style.width = '0px';
+  rulerClipEl.setAttribute('width', 0);
   headEl.style.setProperty('--head', '0px');
   fitTitle();
 }

@@ -244,27 +244,28 @@ body {
   height: 10px;
 }
 
-/* JS paints the gradients with currentColor, so the palette stays in CSS and
-   only the geometry is computed. */
-.scale__ticks {
+/* JS paints one <rect> per tick into the two <g> groups; the palette stays in
+   CSS and only the geometry is computed. crispEdges is what stops a fractional
+   pixel position from anti-aliasing a tick into a faint grey smear. */
+.scale__ruler {
   position: absolute;
   inset: 0;
-  color: rgb(var(--rail));
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
+.scale__ticks { color: rgb(var(--rail)); }
+
+.scale__ticks rect {
+  fill: currentColor;
+  shape-rendering: crispEdges;
+}
+
+/* Played ticks are the same ruler in accent, revealed by a clip rect that JS
+   widens with the playhead. Each tick stays crisp, so the reveal edge reads as
+   a wipe rather than the noise a clipped gradient produced. */
 .scale__ticks--on { color: rgb(var(--accent)); }
-
-/* Played ticks are the same ruler in accent, revealed by a clipping window. */
-.scale__played {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 0;
-  overflow: hidden;
-}
-
-.scale__played .scale__ticks {
-  width: var(--scale-w, 100%);
-}
 
 .scale__head {
   position: absolute;
