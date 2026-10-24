@@ -1,0 +1,100 @@
+name: Bug report
+description: Something is broken, or the app does something other than what it says it will.
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste your Spotify Client Secret, or anything from `tokens.json`**,
+        not in the description, a log or a screenshot of the setup page. Anyone
+        who has them can act as your Spotify app. If one has leaked, rotate the
+        secret in the Spotify developer dashboard, press Disconnect, then
+        connect again.
+
+        JammyLayer measures nothing and sends nothing home, so what you write
+        here is all I get. The more of the below you fill in, the fewer rounds of
+        questions it takes.
+
+  - type: checkboxes
+    id: homework
+    attributes:
+      label: First
+      options:
+        - label: I read [Troubleshooting](https://github.com/ruptz/JammyLayer#troubleshooting) and my problem isn't one of the ones listed there.
+          required: true
+        - label: I searched the existing issues.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+      placeholder: |
+        Connected Spotify on the setup page and it said Connected. The overlay
+        showed the first song, but the card never changed when the next track
+        started.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown on JammyLayer's card in WidgetCake, or in your system's list of installed apps.
+      placeholder: '0.2.0'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: How you installed it
+      options:
+        - Windows installer (.exe)
+        - Installed through WidgetCake
+        - macOS (.dmg)
+        - Linux AppImage
+        - Linux (.deb)
+        - From source (npm run dev)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it goes wrong
+      options:
+        - Installing or launching
+        - The setup page
+        - Connecting Spotify (sign-in, redirect URI, Connected)
+        - The overlay in OBS (blank, stale, wrong size)
+        - The card's look (surface, layout, colours, artwork)
+        - The port
+        - Tray, start when I sign in, or quitting
+        - Somewhere else
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: |
+        Screenshots of the overlay or the setup page (with the Client Secret
+        hidden), the overlay URL you use in OBS, and whether it happens every
+        time or only sometimes. Worth saying if it started after a Spotify or OS
+        update.

@@ -1,0 +1,20 @@
+version: 2
+
+# Weekly is frequent enough for a project that ships on tags, not on merge.
+updates:
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # The root holds only the Tauri CLI.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

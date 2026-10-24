@@ -1,0 +1,46 @@
+name: Feature request
+description: Something the app should do that it doesn't.
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Worth knowing before you write: **JammyLayer only ever serves your own
+        PC.** The overlay is at `127.0.0.1`, and there's no account and no server
+        of mine in the middle. A request that needs one isn't going to happen.
+
+        Not sure whether it's a feature request or a question?
+        [Start a discussion](https://github.com/ruptz/JammyLayer/discussions/new?category=ideas)
+        instead. Nothing is lost either way.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The situation, not the solution. What you're doing on stream when you run into this.
+      placeholder: |
+        I switch between a gameplay scene and a chatting scene, and the card is
+        too big for one and too small for the other.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you want it to do
+      description: Your idea of how it should work, if you have one. Fine to leave this vague.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app
+      options:
+        - The card in OBS (surfaces, layouts, themes)
+        - The setup page
+        - Spotify connection
+        - Tray, start-up, updates, packaging
+        - Something new that doesn't fit the above
+    validations:
+      required: true

@@ -1,0 +1,59 @@
+name: CI
+
+# Fast checks on every push and pull request: the Rust side compiles and its
+# tests pass on all three systems, and the app builds without an installer.
+
+on:
+  push:
+    branches: [master, tauri]
+  pull_request:
+  workflow_dispatch:
+
+# Read-only. Nothing here publishes anything; release.yml is the only workflow
+# that needs more than this.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Rust tests and build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Nobody here runs macOS or Linux, so this is where a break on either
+      # shows up first. One failing must not hide the others.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-22.04]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Linux build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - run: npm ci
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      # No installer, just the app: fast, and enough to catch a broken Tauri
+      # config or a resource path that no longer exists.
+      - name: Build
+        run: npm run build -- --no-bundle

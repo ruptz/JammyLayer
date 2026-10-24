@@ -1,0 +1,17 @@
+# Issues are for bugs and concrete feature requests. Questions, setup trouble
+# and "is this normal?" go to Discussions, which keeps the issue list short
+# enough to actually work through.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Setup help, or a question
+    url: https://github.com/ruptz/JammyLayer/discussions/new?category=q-a
+    about: Spotify won't connect, the overlay is blank in OBS, the card is the wrong size. Ask here and it gets answered in the open, where the next person can find it.
+
+  - name: Troubleshooting guide
+    url: https://github.com/ruptz/JammyLayer#troubleshooting
+    about: Covers the common ones already, including INVALID_CLIENT redirect errors, expired links, a busy port and a blank or stale overlay.
+
+  - name: Is the unsigned build safe?
+    url: https://github.com/ruptz/JammyLayer#2-install-the-app-and-connect-it
+    about: Windows SmartScreen and macOS "damaged" warnings are expected. The builds are unsigned because signing costs money every year, and JammyLayer is free.

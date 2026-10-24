@@ -5,78 +5,86 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>JammyLayer</title>
 <link rel="icon" href="/logo.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/setup.css">
 </head>
 <body>
 
-<div class="deck">
+<!-- The window has no system frame; in the app this bar is the frame. -->
+<header class="titlebar" data-tauri-drag-region>
+  <div class="brand" data-tauri-drag-region>
+    <img src="/logo.png" alt="" width="26" height="26" data-tauri-drag-region>
+    <span class="wordmark" data-tauri-drag-region>JAMMYLAYER</span>
+  </div>
+  <span class="suite" data-tauri-drag-region>Now-playing overlay</span>
 
-  <!-- ═══════════════════════════════════════════════════════ masthead ══ -->
-  <header class="mast">
-    <h1 class="mast__word" id="wordmark">Jammylayer</h1>
+  <p class="pulse" id="lamp" data-tone="wait" data-tauri-drag-region>
+    <i aria-hidden="true"></i><span id="lampText">Checking</span>
+  </p>
 
-    <div class="mast__strip">
-      <img class="mast__mark" src="/logo.png" alt="" width="52" height="52" decoding="async">
+  <button class="titlebar__btn" id="prefsBtn" type="button" hidden title="App settings" aria-label="App settings">
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      <circle cx="8" cy="8" r="4.8" /><circle cx="8" cy="8" r="1.9" />
+      <path d="M8 3.1V1.7M8 12.9v1.4M12.9 8h1.4M3.1 8H1.7M11.46 4.54l.99-.99M4.54 11.46l-.99.99M11.46 11.46l.99.99M4.54 4.54l-.99-.99" />
+    </svg>
+  </button>
 
-      <p class="mast__what">Spotify <i aria-hidden="true">→</i> OBS browser source</p>
+  <div class="window-controls" id="windowControls" hidden>
+    <button type="button" id="winMin" aria-label="Minimise" title="Minimise">
+      <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 5.5h10" /></svg>
+    </button>
+    <button type="button" id="winMax" aria-label="Maximise" title="Maximise">
+      <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" /></svg>
+    </button>
+    <button type="button" id="winClose" class="close" aria-label="Close" title="Close">
+      <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" /></svg>
+    </button>
+  </div>
+</header>
 
-      <dl class="stats">
-        <div class="stat"><dt>Source</dt><dd id="statSize">—</dd></div>
-        <div class="stat"><dt>Surface</dt><dd id="statSurface">Glass</dd></div>
-        <div class="stat"><dt>Scale</dt><dd id="statScale">1.00×</dd></div>
-      </dl>
-
-      <a class="btn btn--accent" id="heroConnect" href="/login">Connect Spotify</a>
-      <button class="btn btn--accent" id="heroCopy" type="button" hidden>Copy overlay URL</button>
-
-      <!-- Desktop build only: these are about the app window, which nothing
-           else has. Unhidden once /api/config says so. -->
-      <button class="btn btn--icon" id="prefsBtn" type="button" hidden
-              title="App settings" aria-label="App settings">
-        <!-- A filled gear, not a stroked star: the teeth are trapezoids sitting
-             flush on the body, which is what stops it reading as a sun. -->
-        <svg viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd" aria-hidden="true">
-          <path d="M10.20 3.90L10.56 1.09L13.44 1.09L13.80 3.90A8.3 8.3 0 0 1 16.46 5.00L18.70 3.27L20.73 5.30L19.00 7.54A8.3 8.3 0 0 1 20.10 10.20L22.91 10.56L22.91 13.44L20.10 13.80A8.3 8.3 0 0 1 19.00 16.46L20.73 18.70L18.70 20.73L16.46 19.00A8.3 8.3 0 0 1 13.80 20.10L13.44 22.91L10.56 22.91L10.20 20.10A8.3 8.3 0 0 1 7.54 19.00L5.30 20.73L3.27 18.70L5.00 16.46A8.3 8.3 0 0 1 3.90 13.80L1.09 13.44L1.09 10.56L3.90 10.20A8.3 8.3 0 0 1 5.00 7.54L3.27 5.30L5.30 3.27L7.54 5.00A8.3 8.3 0 0 1 10.20 3.90ZM12 8A4 4 0 1 0 12 16A4 4 0 1 0 12 8Z"/>
-        </svg>
-      </button>
-    </div>
-  </header>
-
-  <!-- ═══════════════════════════ index — setup really is a sequence ══ -->
-  <nav class="rail" aria-label="Sections">
-    <ol class="rail__list">
-      <li hidden id="railKeys"><a href="#sec-keys"><b>01</b><span>Keys</span></a></li>
-      <li><a href="#sec-account"><b>02</b><span>Account</span></a></li>
-      <li><a href="#sec-design"><b>03</b><span>Design</span></a></li>
-      <li><a href="#sec-idle"><b>04</b><span>Idle</span></a></li>
-      <li><a href="#sec-output"><b>05</b><span>Output</span></a></li>
-    </ol>
-
-    <p class="pulse" id="lamp" data-tone="wait">
-      <i aria-hidden="true"></i><span id="lampText">Checking</span>
-    </p>
+<!-- Setup really is a sequence, so the sections are numbered and the tab
+     you're reading is marked as you scroll. -->
+<div class="toolbar">
+  <nav class="rail__list tabs" aria-label="Sections">
+    <a href="#sec-keys" id="railKeys" hidden>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="5.5" cy="10.5" r="3" /><path d="M7.6 8.4 13.5 2.5M11.5 4.5l1.8 1.8M10 6l1.2 1.2" /></svg>
+      Keys
+    </a>
+    <a href="#sec-account">
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8" /><path d="M2.8 14c.6-2.8 2.7-4.3 5.2-4.3s4.6 1.5 5.2 4.3" /></svg>
+      Account
+    </a>
+    <a href="#sec-design">
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="2" y="4" width="12" height="8" rx="1.5" /><rect x="3.8" y="5.8" width="4.4" height="4.4" rx=".6" /><path d="M9.8 6.6h2.4M9.8 9.2h1.6" /></svg>
+      Design
+    </a>
+    <a href="#sec-idle">
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M6 3.5v9M10 3.5v9" /></svg>
+      Idle
+    </a>
+    <a href="#sec-output">
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7 9M11.5 9.5v3.5h-9v-9H6" /></svg>
+      Output
+    </a>
   </nav>
 
-  <!-- ═══════════════════════════════════════════════════ the controls ══ -->
-  <main class="main">
+  <a class="pill primary" id="heroConnect" href="/login">Connect Spotify</a>
+  <button class="pill primary" id="heroCopy" type="button" hidden>Copy overlay URL</button>
+</div>
 
-    <!-- Desktop build only: a packaged app has no .env to edit, so credentials
-         are entered here. Hidden when the server reads them from the
-         environment, which is what every container deployment does. -->
-    <section class="sec" id="sec-keys" hidden>
-      <header class="sec__hd">
-        <span class="sec__no">01</span>
-        <h2 class="sec__title">Keys</h2>
-        <p class="sec__note">From your app on the
-          <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">Spotify developer dashboard</a>.
-          They stay on this machine and are sent only to Spotify.</p>
-      </header>
+<div class="workspace">
 
-      <div class="sec__body">
+  <main class="scroller" id="scroller">
+
+    <!-- Credentials are entered here: a desktop app has no .env to edit. Shown
+         once /api/config says they can be edited. -->
+    <section class="cell" id="sec-keys" hidden>
+      <div class="strip"><span>01 · Keys</span><span class="tag" id="keysTag">—</span></div>
+      <div class="body">
+        <h2 class="cell__title">Spotify app keys</h2>
+        <p class="cell__note">From your app on the
+          <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">Spotify developer dashboard ↗</a>.
+          They stay on this computer and are sent only to Spotify.</p>
+
         <div class="field field--stack">
           <label class="field__label" for="clientId">Client ID</label>
           <input class="input input--mono" type="text" id="clientId"
@@ -95,28 +103,26 @@
           <div class="copy">
             <input class="input input--mono" type="text" id="redirectUriHint" readonly spellcheck="false"
                    aria-label="Redirect URI to register">
-            <button class="btn" id="copyRedirectBtn" type="button">Copy</button>
+            <button class="pill" id="copyRedirectBtn" type="button">Copy</button>
           </div>
           <p class="field__help">Spotify matches this character for character.</p>
         </div>
 
         <p class="note" id="credsNote" hidden></p>
 
-        <div class="sec__act">
-          <button class="btn btn--solid" id="saveCredsBtn" type="button">Save credentials</button>
+        <div class="actions">
+          <button class="pill primary" id="saveCredsBtn" type="button">Save credentials</button>
         </div>
       </div>
     </section>
 
-    <section class="sec" id="sec-account" data-state="wait">
-      <header class="sec__hd">
-        <span class="sec__no">02</span>
-        <h2 class="sec__title">Account</h2>
-        <p class="sec__note">Authorize JammyLayer to read what you are playing. The refresh
-          token is kept on this machine and nowhere else.</p>
-      </header>
+    <section class="cell" id="sec-account" data-state="wait">
+      <div class="strip"><span>02 · Account</span><span class="tag" id="accountTag">—</span></div>
+      <div class="body">
+        <h2 class="cell__title">Your Spotify</h2>
+        <p class="cell__note">JammyLayer reads what you're playing. The sign-in is kept on this
+          computer and nowhere else.</p>
 
-      <div class="sec__body">
         <div class="now" id="now">
           <span class="now__art" id="nowSleeve">
             <img id="nowArt" alt="" decoding="async">
@@ -130,44 +136,31 @@
         </div>
 
         <dl class="facts">
-          <div class="fact">
-            <dt>Client keys</dt>
-            <dd class="state" id="credState">—</dd>
-          </div>
-          <div class="fact">
-            <dt>Authorization</dt>
-            <dd class="state" id="authState">—</dd>
-          </div>
-          <div class="fact">
-            <dt>Playing on</dt>
-            <dd class="state" id="deviceState">—</dd>
-          </div>
-          <div class="fact">
-            <dt>Redirect URI</dt>
-            <dd class="state mono" id="redirectUri">—</dd>
-          </div>
+          <div class="fact"><dt>Client keys</dt><dd class="state" id="credState">—</dd></div>
+          <div class="fact"><dt>Authorization</dt><dd class="state" id="authState">—</dd></div>
+          <div class="fact"><dt>Playing on</dt><dd class="state" id="deviceState">—</dd></div>
+          <div class="fact"><dt>Redirect URI</dt><dd class="state mono" id="redirectUri">—</dd></div>
         </dl>
 
         <p class="note note--bad" id="alert" hidden></p>
 
-        <div class="sec__act" id="accountFoot" hidden>
-          <button class="btn" id="disconnectBtn" type="button">Disconnect</button>
-          <span class="sec__act-note">Forgets the refresh token on this machine.</span>
+        <div class="actions" id="accountFoot" hidden>
+          <button class="pill" id="disconnectBtn" type="button">Disconnect</button>
+          <span class="actions__note">Forgets the sign-in on this computer.</span>
         </div>
       </div>
     </section>
 
-    <section class="sec" id="sec-design">
-      <header class="sec__hd">
-        <span class="sec__no">03</span>
-        <h2 class="sec__title">Design</h2>
-        <p class="sec__note">How the card looks over your footage. Nothing here is stored on the
-          server — each change is written into the overlay URL, so the URL <em>is</em> the
-          configuration.</p>
-        <button class="btn btn--ghost btn--sm sec__reset" id="resetBtn" type="button">Reset</button>
-      </header>
+    <section class="cell" id="sec-design">
+      <div class="strip">
+        <span>03 · Design</span>
+        <button class="link" id="resetBtn" type="button">Reset</button>
+      </div>
+      <div class="body">
+        <h2 class="cell__title">How the card looks</h2>
+        <p class="cell__note">Nothing here is stored in the app — each change is written into the
+          overlay URL, so the URL <em>is</em> the configuration.</p>
 
-      <div class="sec__body">
         <div class="field field--stack">
           <span class="field__label">Surface</span>
           <p class="field__help">What the type sits on. Glass refracts a blurred copy of the
@@ -215,7 +208,7 @@
 
         <div class="field field--stack">
           <span class="field__label">Layout</span>
-          <p class="field__help">How art, type and the transport are arranged — and how wide
+          <p class="field__help">How art, type and the progress bar are arranged — and how wide
             the source ends up.</p>
           <div class="opts" data-param="layout">
             <label class="opt">
@@ -334,15 +327,13 @@
       </div>
     </section>
 
-    <section class="sec" id="sec-idle">
-      <header class="sec__hd">
-        <span class="sec__no">04</span>
-        <h2 class="sec__title">Idle</h2>
-        <p class="sec__note">What the overlay does when playback stops. The monitor always keeps
-          a card on screen so you can judge it — these apply in OBS.</p>
-      </header>
+    <section class="cell" id="sec-idle">
+      <div class="strip"><span>04 · Idle</span></div>
+      <div class="body">
+        <h2 class="cell__title">When the music stops</h2>
+        <p class="cell__note">What the overlay does in OBS when playback stops. The preview always
+          keeps a card on screen so you can judge it.</p>
 
-      <div class="sec__body">
         <div class="field">
           <div class="field__text">
             <span class="field__label">Progress bar</span>
@@ -380,121 +371,97 @@
       </div>
     </section>
 
-    <section class="sec sec--last" id="sec-output">
-      <header class="sec__hd">
-        <span class="sec__no">05</span>
-        <h2 class="sec__title">Output</h2>
-        <p class="sec__note">One URL, pasted into an OBS <em>Browser</em> source.</p>
-      </header>
+    <section class="cell" id="sec-output">
+      <div class="strip"><span>05 · Output</span><span class="mono" id="stepSize">—</span></div>
+      <div class="body">
+        <h2 class="cell__title">Add it to OBS</h2>
+        <p class="cell__note">One URL, pasted into an OBS <em>Browser</em> source.</p>
 
-      <div class="sec__body">
-        <div class="copy copy--wide">
-          <input class="input input--mono input--url" type="text" id="overlayUrl" readonly spellcheck="false"
+        <div class="copy">
+          <input class="input input--mono" type="text" id="overlayUrl" readonly spellcheck="false"
                  aria-label="Browser source URL">
-          <button class="btn btn--solid" id="copyBtn" type="button">Copy</button>
-          <a class="btn" id="openOverlay" href="/" target="_blank" rel="noreferrer">
-            Open
-            <svg class="btn__arrow" width="12" height="12" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-              <path d="M4 9 9 4M4.6 4H9v4.4" stroke="currentColor" stroke-width="1.7"
-                    stroke-linecap="square"/>
-            </svg>
-          </a>
+          <button class="pill primary" id="copyBtn" type="button">Copy</button>
+          <a class="pill" id="openOverlay" href="/" target="_blank" rel="noreferrer">Open ↗</a>
         </div>
 
         <ol class="steps">
-          <li>Set the source to <b class="mono" id="stepSize">—</b>.</li>
+          <li>Set the source to the size shown above.</li>
           <li>Leave <em>Shutdown source when not visible</em> off, so the card keeps its connection.</li>
           <li><em>Custom CSS</em> can stay empty — the page is already transparent.</li>
           <li>After any change here, right-click the source and choose <em>Refresh cache of current page</em>.</li>
         </ol>
       </div>
     </section>
-
-    <!-- The end of the page, which is where a colophon goes: you have finished
-         setting up by the time you reach it. -->
-    <footer class="colophon">
-      <img class="colophon__mark" src="/logo.png" alt="" width="36" height="36" decoding="async">
-
-      <p class="colophon__text">Free, self-hosted, and no account of mine to sign into.
-        If it earns its place on your stream, there is a tip jar.</p>
-
-      <a class="btn btn--solid" href="https://ko-fi.com/ruptz" target="_blank" rel="noreferrer noopener">
-        Support on Ko-fi
-        <svg class="btn__arrow" width="12" height="12" viewBox="0 0 13 13" fill="none" aria-hidden="true">
-          <path d="M4 9 9 4M4.6 4H9v4.4" stroke="currentColor" stroke-width="1.7"
-                stroke-linecap="square"/>
-        </svg>
-      </a>
-    </footer>
   </main>
 
-  <!-- ═════════════════════════════════════════ the picture it makes ══ -->
+  <!-- The picture it makes: the real overlay, at the real size, always in view. -->
   <aside class="stage">
-    <div class="monitor">
-      <div class="monitor__bar">
-        <span class="tally" id="tally" data-live="false">
-          <i aria-hidden="true"></i><b id="tallyText">Demo</b>
-        </span>
-        <span class="monitor__track" id="tallyTrack">Preview tracks</span>
-        <span class="monitor__size mono" id="sourceSize">—</span>
-      </div>
+    <div class="strip">
+      <span class="tally" id="tally" data-live="false"><i aria-hidden="true"></i><b id="tallyText">Demo</b></span>
+      <span class="mono" id="sourceSize">—</span>
+    </div>
 
-      <div class="screen" id="viewport" data-backdrop="grid">
-        <span class="crop crop--tl" aria-hidden="true"></span>
-        <span class="crop crop--tr" aria-hidden="true"></span>
-        <span class="crop crop--bl" aria-hidden="true"></span>
-        <span class="crop crop--br" aria-hidden="true"></span>
-        <iframe id="preview" title="Overlay preview" tabindex="-1"></iframe>
-      </div>
+    <div class="screen" id="viewport" data-backdrop="grid">
+      <span class="crop crop--tl" aria-hidden="true"></span>
+      <span class="crop crop--tr" aria-hidden="true"></span>
+      <span class="crop crop--bl" aria-hidden="true"></span>
+      <span class="crop crop--br" aria-hidden="true"></span>
+      <iframe id="preview" title="Overlay preview" tabindex="-1"></iframe>
+    </div>
 
-      <div class="monitor__foot">
-        <div class="switch">
-          <span class="switch__cap">Behind</span>
-          <div class="seg seg--sm" id="backdrop">
-            <label><input type="radio" name="backdrop" value="grid" checked><span>Nothing</span></label>
-            <label><input type="radio" name="backdrop" value="dark"><span>Dark</span></label>
-            <label><input type="radio" name="backdrop" value="bright"><span>Bright</span></label>
-          </div>
+    <p class="stage__track" id="tallyTrack">Preview tracks</p>
+
+    <div class="stage__controls">
+      <div class="switch">
+        <span class="switch__cap">Behind</span>
+        <div class="seg seg--sm" id="backdrop">
+          <label><input type="radio" name="backdrop" value="grid" checked><span>Nothing</span></label>
+          <label><input type="radio" name="backdrop" value="dark"><span>Dark</span></label>
+          <label><input type="radio" name="backdrop" value="bright"><span>Bright</span></label>
         </div>
-
-        <div class="switch">
-          <span class="switch__cap">Feed</span>
-          <div class="seg seg--sm" id="feed">
-            <label><input type="radio" name="feed" value="live"><span>Spotify</span></label>
-            <label><input type="radio" name="feed" value="demo" checked><span>Demo</span></label>
-          </div>
+      </div>
+      <div class="switch">
+        <span class="switch__cap">Feed</span>
+        <div class="seg seg--sm" id="feed">
+          <label><input type="radio" name="feed" value="live"><span>Spotify</span></label>
+          <label><input type="radio" name="feed" value="demo" checked><span>Demo</span></label>
         </div>
       </div>
     </div>
+
+    <dl class="stats">
+      <div class="stat"><dt>Source</dt><dd id="statSize">—</dd></div>
+      <div class="stat"><dt>Surface</dt><dd id="statSurface">Glass</dd></div>
+      <div class="stat"><dt>Scale</dt><dd id="statScale">1.00×</dd></div>
+    </dl>
   </aside>
 </div>
+
+<footer class="statusbar">
+  <span id="footnote">JammyLayer · Runs on this PC</span>
+  <nav class="statusbar__links">
+    <a href="https://github.com/ruptz/JammyLayer" target="_blank" rel="noreferrer">GitHub ↗</a>
+    <a href="https://ko-fi.com/ruptz" target="_blank" rel="noreferrer noopener">Ko-fi ↗</a>
+  </nav>
+</footer>
 
 <!-- ═══════════════════════════════════════════════════ app settings ══ -->
 <dialog class="sheet" id="prefs" aria-labelledby="prefsTitle">
   <form method="dialog">
-    <header class="sheet__hd">
-      <span class="sheet__tag">JammyLayer</span>
-      <h2 class="sheet__title" id="prefsTitle">App settings</h2>
-      <button class="btn btn--ghost btn--sm sheet__close" value="close">Close</button>
-    </header>
-
+    <div class="strip"><span>App settings</span><button class="link" value="close">Close</button></div>
     <div class="sheet__body">
-      <div class="field">
-        <div class="field__text">
-          <span class="field__label">Closing the window</span>
-          <p class="field__help">Keeping it running leaves the overlay live in OBS and puts
-            JammyLayer in the system tray. Quitting stops the overlay until you open the
-            app again.</p>
-        </div>
-        <div class="seg" data-param="closeMode">
-          <label><input type="radio" name="closeMode" value="quit" checked><span>Quits</span></label>
-          <label><input type="radio" name="closeMode" value="tray"><span>Keeps running</span></label>
-        </div>
+      <h2 class="cell__title" id="prefsTitle">Closing the window</h2>
+      <p class="cell__note">Keeping it running leaves the overlay live in OBS and puts JammyLayer
+        in the system tray. Quitting stops the overlay until you open the app again.</p>
+
+      <div class="seg" data-param="closeMode">
+        <label><input type="radio" name="closeMode" value="quit" checked><span>Quits</span></label>
+        <label><input type="radio" name="closeMode" value="tray"><span>Keeps running</span></label>
       </div>
 
       <p class="note" id="prefsNote" hidden></p>
 
-      <p class="sheet__foot">Starting with your machine is in the tray menu, under
+      <p class="sheet__foot">Starting with your computer is in the tray menu, under
         <b>Start when I sign in</b>.</p>
     </div>
   </form>

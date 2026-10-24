@@ -7,8 +7,7 @@
        and light the tally when it is showing the real thing
      - report the true source size by measuring what the overlay actually
        rendered rather than guessing from the layout name
-     - keep the masthead and the index true to the page: the word is measured
-       to its column, and the index follows what you are reading
+     - keep the section tabs true to the page: they follow what you are reading
 */
 
 const DEFAULTS = {
@@ -413,6 +412,12 @@ function renderStatus(state) {
 
   setState(credState, state.configured ? 'Set' : 'Missing', state.configured ? 'ok' : 'bad');
   setState(authState, state.connected ? 'Connected' : 'Not connected', state.connected ? 'ok' : 'bad');
+  setState($('keysTag'), state.configured ? 'Saved' : 'Needed', state.configured ? 'ok' : 'todo');
+  setState(
+    $('accountTag'),
+    state.authError ? 'Reconnect' : state.connected ? 'Connected' : 'Not connected',
+    state.authError ? 'bad' : state.connected ? 'ok' : 'todo',
+  );
   setState(deviceState, state.device || '—');
 
   if (item) {
@@ -607,11 +612,11 @@ fetch('/api/config')
   .then((res) => res.json())
   .then((data) => {
     $('redirectUri').textContent = data.redirectUri;
+    if (data.version) $('footnote').textContent = `JammyLayer ${data.version} · Runs on this PC`;
 
     prefsBtn.hidden = !data.canEditPreferences;
     showCloseMode(data.closeToTray);
 
-    // The container build leaves this hidden: it takes credentials from .env.
     if (!data.canEditCredentials) return;
     credsPanel.hidden = false;
     $('railKeys').hidden = false;
@@ -640,53 +645,34 @@ if (window.EventSource) {
   setInterval(poll, 4000);
 }
 
-// ────────────────────────────────────────────────────────── masthead + index
+// ──────────────────────────────────────────────────────────── section tabs
 
-const wordmark = $('wordmark');
-
-/**
- * The word is set to the exact width of the column it sits in, which is the one
- * thing on the page that has to be measured rather than declared: Archivo and
- * the Helvetica it falls back to are different widths, so a size hard-coded for
- * either would leave a gap under one of them.
- *
- * Measured at a known size against max-content — the element is a block, so its
- * own width would otherwise just report the column back.
- */
-function fitWordmark() {
-  const room = wordmark.parentElement.clientWidth;
-  if (!room) return;
-
-  wordmark.style.fontSize = '100px';
-  wordmark.style.width = 'max-content';
-  const width = wordmark.offsetWidth;
-  wordmark.style.width = '';
-
-  if (width) wordmark.style.fontSize = `${Math.max(30, (room / width) * 100).toFixed(2)}px`;
-}
-
+const scroller = $('scroller');
 const railLinks = [...document.querySelectorAll('.rail__list a')];
 const railTargets = railLinks
   .map((link) => ({ link, section: document.querySelector(link.getAttribute('href')) }))
   .filter((pair) => pair.section);
 
 /**
- * Whichever section has most recently crossed the reading line, so the index
- * says where you are rather than where you clicked. Hidden sections — the keys
- * panel on a hosted deployment — are skipped, and the first visible one holds
- * the mark until something scrolls past.
+ * Whichever section has most recently crossed the reading line, so the tabs
+ * say where you are rather than where you clicked. Hidden sections are
+ * skipped, and the first visible one holds the mark until something scrolls
+ * past. Reaching the bottom marks the last, which may never cross the line.
  */
 function markSection() {
-  const line = 150;
+  const line = scroller.getBoundingClientRect().top + 120;
+  const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4;
   let current = null;
 
   for (const pair of railTargets) {
     if (pair.section.hidden) continue;
-    if (!current || pair.section.getBoundingClientRect().top <= line) current = pair;
+    if (!current || atEnd || pair.section.getBoundingClientRect().top <= line) current = pair;
   }
 
   for (const pair of railTargets) {
-    pair.link.setAttribute('aria-current', String(pair === current));
+    const on = pair === current;
+    pair.link.setAttribute('aria-current', String(on));
+    pair.section.classList.toggle('is-current', on);
   }
 }
 
@@ -701,18 +687,22 @@ function scheduleSpy() {
   });
 }
 
-window.addEventListener('scroll', scheduleSpy, { passive: true });
+scroller.addEventListener('scroll', scheduleSpy, { passive: true });
+window.addEventListener('resize', scheduleSpy);
 
-window.addEventListener('resize', () => {
-  fitWordmark();
-  scheduleSpy();
-});
+// ─────────────────────────────────────────────────────────── window controls
 
-// The fallback face is a different width, so the fit has to be taken again once
-// the real one has arrived.
-document.fonts?.ready.then(fitWordmark).catch(() => {});
+/* Inside the app the window has no system frame, so the title bar carries its
+   buttons. Opened in an ordinary browser there's no window to control. */
+if (window.__TAURI__?.window) {
+  const win = window.__TAURI__.window.getCurrentWindow();
+  $('windowControls').hidden = false;
+  $('winMin').addEventListener('click', () => win.minimize());
+  $('winMax').addEventListener('click', () => win.toggleMaximize());
+  // The same close as any other: it hides to the tray when that's switched on.
+  $('winClose').addEventListener('click', () => win.close());
+}
 
-fitWordmark();
 markSection();
 syncSwatch();
 refresh();
