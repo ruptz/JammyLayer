@@ -32,6 +32,12 @@ on:
 permissions:
   contents: read
 
+# One release run per tag at a time; a second push of the same tag waits
+# rather than racing the first to create the release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # The installers take their version from the project files, not from the tag,
   # so a tag that disagrees would ship installers named after the previous
@@ -39,6 +45,7 @@ jobs:
   verify:
     name: Check the tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Tag matches the project version
@@ -60,6 +67,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: verify
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
 
     strategy:
       # Windows is the tested platform. A failure on either of the others should
@@ -111,9 +119,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+      # No Rust cache here on purpose: a tag's cache can't be restored by the
+      # next tag, so saving one would only add minutes of upload to every
+      # build.
 
       # The web view, and the tray's indicator library, that Tauri builds against.
       - name: Linux build libraries
@@ -134,22 +142,24 @@ jobs:
         shell: bash
         run: |
           version=$(node -p "require('./package.json').version")
-          zip="$PWD/launcher/JammyLayer-$version-${{ matrix.platform }}.zip"
+          # Relative, not $PWD: on Windows, Git Bash would hand PowerShell a
+          # /d/a/... path, which it reads as a folder named d on drive D.
+          zip="JammyLayer-$version-${{ matrix.platform }}.zip"
           release="src-tauri/target/${{ matrix.target }}/release"
           release="${release//\/\//\/}"
           mkdir -p launcher app
           case "${{ matrix.platform }}" in
             win)
               cp "$release/jammylayer.exe" app/JammyLayer.exe
-              (cd app && pwsh -NoProfile -Command "Compress-Archive -Path * -DestinationPath '$zip'")
+              (cd app && pwsh -NoProfile -Command "Compress-Archive -Path * -DestinationPath '../launcher/$zip'")
               ;;
             macos-*)
               # ditto keeps the bundle's permissions and structure intact.
-              ditto -c -k --keepParent "$release"/bundle/macos/*.app "$zip"
+              ditto -c -k --keepParent "$release"/bundle/macos/*.app "launcher/$zip"
               ;;
             linux-*)
               cp "$release/jammylayer" app/JammyLayer
-              (cd app && zip -r -y "$zip" .)
+              (cd app && zip -r -y "../launcher/$zip" .)
               ;;
           esac
           ls -la launcher
@@ -172,6 +182,7 @@ jobs:
     # before publishing it.
     if: startsWith(github.ref, 'refs/tags/') && !cancelled()
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -185,9 +196,12 @@ jobs:
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The Linux builds arrive inside appimage/ and deb/ folders, so collect
+        # the files themselves rather than whatever sits at the top level.
         run: |
-          ls -la installers
-          gh release create "$GITHUB_REF_NAME" installers/* \
+          mapfile -t files < <(find installers -type f | sort)
+          ls -la "${files[@]}"
+          gh release create "$GITHUB_REF_NAME" "${files[@]}" \
             --draft \
             --generate-notes \
             --title "JammyLayer $GITHUB_REF_NAME"
