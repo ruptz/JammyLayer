@@ -1,0 +1,41 @@
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste your Spotify Client Secret or anything from `tokens.json`
+        here.** If one has been pasted somewhere public, rotate the secret in the
+        Spotify developer dashboard and connect again.
+
+        Most setup trouble is one of the cases in
+        [Troubleshooting](https://github.com/ruptz/JammyLayer#troubleshooting):
+        a redirect URI that doesn't match byte for byte, an expired link, a busy
+        port, or OBS showing a cached page. Worth a look first.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you stuck on
+      description: Where you got to in the setup steps, and what you see instead of what you expected.
+      placeholder: |
+        I'm on step 2. I pasted the Client ID and Secret and pressed Connect, and
+        Spotify says INVALID_CLIENT: Invalid redirect URI.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: '0.2.0'
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux

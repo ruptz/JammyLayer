@@ -2,28 +2,23 @@
 
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support%20this%20project-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/ruptz)
 
-A self-hosted "now playing" card for OBS browser sources. It polls Spotify for
-the current track, pushes updates to the overlay over Server-Sent Events, and
-renders a studio-transport card whose accent colour is derived from the album
-art.
+A "now playing" card for OBS browser sources. It polls Spotify for the current
+track, pushes updates to the overlay over Server-Sent Events, and renders a
+studio-transport card whose accent colour is derived from the album art.
 
-**Most people want the desktop app.** Download one installer, run it, and it
-sits in the tray on the machine OBS is already on — no terminal, no Node, no
-Docker, no `.env`. You type your Spotify credentials into its setup window and
-paste one URL into OBS. [Start here.](#setup--the-desktop-app)
+JammyLayer is a desktop app. Download one installer, run it, and it sits in the
+tray on the machine OBS is already on — no terminal, no Node, no `.env`. You
+type your Spotify credentials into its setup window and paste one URL into OBS.
+It only serves this computer: the overlay is at `127.0.0.1` and nothing else on
+your network can reach it.
 
-| | Who it's for | What it needs |
-|---|---|---|
-| **[Desktop app](#setup--the-desktop-app)** | **Almost everyone.** OBS and the overlay on one PC | Nothing — download and run |
-| [From source](#run-from-source) | Development, or a hand-rolled service | Node 22 |
-| [Docker](#docker-on-a-linux-server) | A Linux box serving OBS across the LAN | Docker + Compose |
-
-All three host the same server and produce the same overlay — they differ only
-in where it runs and where it keeps your token.
+It is also part of [WidgetCake](https://github.com/ruptz/WidgetCake), which can
+install it, start and stop it, and keep it up to date alongside the other Layer
+apps.
 
 ---
 
-## Setup — the desktop app
+## Setup
 
 Three steps: register an app with Spotify, install this one and connect it, then
 point OBS at it. Budget ten minutes, most of it spent in Spotify's dashboard.
@@ -52,8 +47,6 @@ strict and the error message is unhelpful:
   `http://[::1]:PORT`.
 - **`http://localhost:8888/callback` is rejected.** It is not a synonym for
   `127.0.0.1` as far as Spotify is concerned.
-- A LAN address like `http://192.168.1.50:8888/callback` is rejected too — it is
-  neither HTTPS nor loopback.
 
 Under **Which API/SDKs are you planning to use**, tick **Web API**. Save, then
 open the app's settings and copy the **Client ID** and **Client Secret**.
@@ -64,17 +57,17 @@ open the app's settings and copy the **Client ID** and **Client Secret**.
 
 ### 2. Install the app and connect it
 
-Download the installer for your machine from the [latest
-release](https://github.com/ruptz/JammyLayer/releases/latest):
+Install it from WidgetCake, or download the installer for your machine from the
+[latest release](https://github.com/ruptz/JammyLayer/releases/latest):
 
 | | File | |
 |---|---|---|
-| Windows | `JammyLayer Setup x.y.z.exe` | The tested platform. A normal wizard installer. |
-| macOS | `JammyLayer-x.y.z-arm64.dmg` / `-x64.dmg` | Untested. Take the one matching your chip. |
-| Linux | `JammyLayer-x.y.z.AppImage` | Untested. `chmod +x` it, then run it. |
+| Windows | `JammyLayer_x.y.z_x64-setup.exe` | The tested platform. A normal wizard installer. |
+| macOS | `JammyLayer_x.y.z_aarch64.dmg` / `_x64.dmg` | Untested. Take the one matching your chip. |
+| Linux | `JammyLayer_x.y.z_amd64.AppImage` | Untested. `chmod +x` it, then run it. |
 
-Nothing else is needed — no Node, no npm, no Docker. Electron brings its own
-runtime and the server has no dependencies at all.
+Nothing else is needed. The app uses the web view built into your OS, so the
+download is small.
 
 **The installers are not code-signed**, so your OS will object the first time
 you run one:
@@ -86,17 +79,17 @@ you run one:
   flag: `xattr -cr /Applications/JammyLayer.app`.
 
 <details>
-<summary><b>Or build it yourself</b> — needs Node 22</summary>
+<summary><b>Or build it yourself</b> — needs Node 22 and Rust</summary>
 
 ```powershell
-npm install     # devDependencies only — the server itself has none
-npm run dist    # writes the same installer into dist/
+npm install          # the Tauri command-line tools
+npm run build        # writes the installer into src-tauri/target/release/bundle/
 ```
 
-To skip installing and run it straight from the source folder:
+To run it straight from the source folder instead:
 
 ```powershell
-npm run desktop
+npm run dev
 ```
 
 </details>
@@ -179,13 +172,12 @@ then the way out.
 The tray menu also has **Open setup…**, **Copy overlay URL** and **Start when I
 sign in**.
 
-**Starting automatically** — tick **Start when I sign in** in the tray menu
-(Windows and macOS). It comes up silently in the tray, so the overlay is live
-before you open OBS.
+**Starting automatically** — tick **Start when I sign in** in the tray menu. It
+comes up silently in the tray, so the overlay is live before you open OBS.
 
-**Updating** — download the newer installer and run it over the top. Your
-credentials and token live outside the install folder and survive it, so you
-will not have to reconnect.
+**Updating** — update it from WidgetCake, or download the newer installer and
+run it over the top. Your credentials and token live outside the install folder
+and survive it, so you will not have to reconnect.
 
 **Changing the port** — add `"port": 9000` to `settings.json` in the folder
 above, register `http://127.0.0.1:9000/callback` as a second redirect URI with
@@ -197,129 +189,17 @@ itself at <https://www.spotify.com/account/apps/> if you want it gone entirely.
 
 ---
 
-## Other ways to run it
+## Settings
 
-Both of these need [step 1](#1-create-your-spotify-app) done first — the
-credentials and the redirect URI rule are the same everywhere.
+Everything lives in `settings.json` in the folder above. The setup page and the
+tray menu write it; you only edit it by hand to change the port.
 
-### Run from source
-
-For development, or for running it as your own service. No `npm install` is
-needed: the server has no runtime dependencies at all.
-
-```powershell
-copy .env.example .env
-```
-
-Fill in `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`. Leave `REDIRECT_URI`
-alone. Then:
-
-```powershell
-npm run dev
-```
-
-`dev` runs Node with `--watch` (restarts on file changes) and
-`--env-file-if-exists=.env`, so the `.env` is read without any dotenv package.
-`npm start` is the same thing without the watcher.
-
-Open <http://127.0.0.1:8888/setup>, click **Connect Spotify**, approve, and you
-land on a "Spotify connected" page. The refresh token is written to
-`./data/tokens.json` (gitignored). Then add the OBS source exactly as in
-[step 3](#3-add-it-to-obs).
-
-Note that the credentials form is hidden here — it needs `ALLOW_SETUP`, which
-only the desktop build sets. From source, credentials come from `.env`.
-
-`?demo=1` on the overlay URL drives it from invented tracks, which is handy for
-checking legibility over footage without playing anything.
-
-### Docker on a Linux server
-
-For a Linux box serving the overlay to OBS across the LAN. `.env` is not baked
-into the image (`.dockerignore` excludes it); Compose reads it from the host at
-run time.
-
-```bash
-git pull
-cp .env.example .env   # the same client ID/secret
-docker compose up -d --build
-docker compose logs -f
-```
-
-The overlay is then at `http://<server-ip>:8888/`, which is what OBS points at.
-Serving the overlay over the LAN is fine — the redirect URI restriction applies
-only to the OAuth callback.
-
-Differences from running it from source:
-
-- `DATA_DIR=/data` is set by both the Dockerfile and the compose file, pointing
-  at the **named volume** `tokens`. It is a named volume rather than a bind
-  mount because the container runs as uid 1000 and a host directory created by
-  root would not be writable.
-- The container runs unprivileged as `node`.
-- `restart: unless-stopped` plus a `HEALTHCHECK` hitting `/healthz`.
-
-#### Connecting on a headless box
-
-The callback has to arrive at `127.0.0.1:8888` — which, on a headless server,
-means *your* machine's loopback needs to reach *its* port. SSH tunnel:
-
-```bash
-ssh -L 8888:127.0.0.1:8888 you@your-server
-```
-
-Leave that open, browse to <http://127.0.0.1:8888/setup> on your PC and click
-**Connect Spotify**. Spotify redirects to `127.0.0.1:8888/callback`, the tunnel
-carries it to the container, and the refresh token lands in the volume. Close
-the tunnel afterwards — it is only needed for authorization, not for the
-overlay.
-
-Alternative, if the server already has a domain and a reverse proxy: register an
-HTTPS redirect URI such as `https://overlay.example.com/callback`, set
-`REDIRECT_URI` to it, and skip the tunnel.
-
-Third option, if you would rather not tunnel: authorize on Windows first, then
-copy the `refresh_token` value out of `./data/tokens.json` into
-`SPOTIFY_REFRESH_TOKEN=` in the server's `.env`. It is seeded into the volume on
-first start.
-
-#### Moving from Windows to the server
-
-The client ID/secret are the same in both places, so the only per-environment
-state is the token file. Either re-authorize through the tunnel, or seed
-`SPOTIFY_REFRESH_TOKEN` as above. Do not commit either `.env`.
-
----
-
-## Configuration
-
-Environment variables everywhere except the desktop build, which has no `.env`
-to read and uses `settings.json` in its per-user data directory instead.
-
-| Variable | Default | Notes |
+| Key | Default | Notes |
 |---|---|---|
-| `SPOTIFY_CLIENT_ID` | — | required |
-| `SPOTIFY_CLIENT_SECRET` | — | required |
-| `REDIRECT_URI` | `http://127.0.0.1:8888/callback` | must match the Spotify app exactly |
-| `PORT` | `8888` | |
-| `HOST` | `0.0.0.0` | desktop build forces `127.0.0.1` |
-| `DATA_DIR` | `./data` | container overrides to `/data` |
-| `ALLOW_SETUP` | `0` | enables `POST /api/credentials` from loopback |
-| `SPOTIFY_REFRESH_TOKEN` | — | optional; skips the browser flow |
-| `POLL_PLAYING_MS` | `3000` | ~20 requests/min while playing |
-| `POLL_IDLE_MS` | `10000` | |
-
-Environment variables win over `settings.json`, so setting `SPOTIFY_CLIENT_ID`
-in the environment pins it regardless of what the setup page saved.
-
-`settings.json` also holds `closeToTray`, which has no environment variable
-because it is about the desktop window and nothing else has one. It defaults to
-`false`; the setup page's cog and the tray menu both write it.
-
-`ALLOW_SETUP` is deliberately opt-in. Turning it on for a LAN or VPS deployment
-lets anyone who can reach the port replace your client secret — the loopback
-check is the only thing standing in the way, and it is satisfied by anyone
-holding an SSH tunnel.
+| `clientId` | — | from your Spotify app |
+| `clientSecret` | — | from your Spotify app |
+| `port` | `8888` | the redirect URI registered with Spotify must use the same port |
+| `closeToTray` | `false` | closing the window hides it to the tray instead of quitting |
 
 ### Surfaces
 
@@ -367,9 +247,9 @@ writes non-default values into the URL.
 ## Troubleshooting
 
 **`INVALID_CLIENT: Invalid redirect URI`** — the string registered with Spotify
-does not match the one the server is sending, byte for byte. Check for
+does not match the one the app is sending, byte for byte. Check for
 `localhost` vs `127.0.0.1`, a missing or extra trailing slash, http vs https,
-and the port. The setup page prints the exact value it is sending, in step 02.
+and the port. The setup page prints the exact value it is sending, in step 01.
 
 **"That link has expired"** — authorization links are single-use and valid for
 ten minutes. Start again from the setup page.
@@ -379,7 +259,7 @@ still worked; check the setup window, which should already say **Connected**.
 Windows will not always let a background process take the foreground, in which
 case the taskbar button flashes instead.
 
-**Port 8888 is already in use** — the desktop app says so on startup rather than
+**Port 8888 is already in use** — the app says so on startup rather than
 failing silently. Something else has the port; either stop it, or change the
 port as described under [Living with it](#living-with-it).
 
@@ -399,9 +279,6 @@ silently. Check the browser console on the overlay page.
 **Nothing updates after a while** — Spotify may have rotated or revoked the
 refresh token. The setup page shows the auth error; reconnect the account.
 Rotated tokens are persisted automatically, so this should be rare.
-
-**429 in the logs** — rate limited. The server honours `Retry-After` and backs
-off on its own; raise `POLL_PLAYING_MS` if it persists.
 
 ---
 
@@ -427,26 +304,19 @@ the overlay.
 
 | | |
 |---|---|
-| Runtime | Node.js 22, ES modules, **no runtime dependencies** |
-| Server | `node:http` by hand — no Express |
+| App | [Tauri 2](https://tauri.app): a Rust process with the OS's own web view |
+| Server | `axum`, listening on `127.0.0.1` only |
 | Transport | Server-Sent Events (`/events`), with a JSON polling fallback |
 | Frontend | Plain HTML/CSS/JS, no build step, no bundler, no framework |
 | Auth | Spotify Authorization Code flow; refresh token on disk |
-| State | One JSON file (`tokens.json`) — no database |
-| Desktop | Electron tray app wrapping the same server |
-| Deploy | Docker Compose on Linux, named volume for the token |
-
-**The server still pulls in nothing.** Running from source or in Docker needs no
-`npm install` whatsoever. Electron and electron-builder are `devDependencies`
-used only to build the desktop app, and the image never sees them —
-`.dockerignore` excludes `electron/` and `node_modules/`.
+| State | Two JSON files (`settings.json`, `tokens.json`) — no database |
 
 **Browser target: Chromium 103.** OBS 30.x still embeds CEF/Chromium 103, so
 `overlay.css` avoids `color-mix()`, `:has()`, `oklch()` and CSS nesting. Colours
 are RGB triplets consumed through `rgb(x / a)`. `backdrop-filter`, `filter`,
 `mask-image` and `aspect-ratio` are all fine at that version. Keep it that way —
-the setup page previews in your modern desktop browser, but the overlay has to
-render in OBS.
+the setup page previews in a modern web view, but the overlay has to render in
+OBS.
 
 **The two stylesheets stay separate.** `setup.css` is a spec sheet, not a
 dashboard: a wordmark measured to the exact width of its column, a rule under
@@ -495,29 +365,19 @@ is not achievable in a browser source, by anyone.
 ### Files
 
 ```
-server/
-  bin.js       entry point for `npm start` and the container
-  index.js     HTTP routing, static files, SSE stream, album-art proxy
-  config.js    env parsing, layered overrides, redirect URI, OAuth scopes
-  spotify.js   OAuth, token refresh, now-playing polling, subscriber fan-out
-  store.js     atomic read/write of tokens.json and settings.json
-electron/
-  main.js        desktop wrapper: tray, settings window, starts the same server
-  make-icon.mjs  scales public/logo.png up to the 256px icon the installers want
+src-tauri/src/
+  lib.rs        the app: window, tray, single instance, start with Windows
+  server.rs     HTTP routing, static files, SSE stream, album-art proxy
+  spotify.rs    OAuth, token refresh, now-playing polling, subscriber fan-out
+  settings.rs   atomic read/write of settings.json and tokens.json
 public/
   overlay.html/.css/.js   the OBS browser source
   setup.html/.css/.js     the configuration + preview UI
-  logo.png                the mark: tab icon, masthead, tray, installer
+  logo.png                the mark: tab icon, masthead
 ```
 
-`index.js` exports `start()` / `stop()` and starts nothing on import, which is
-what lets both entry points share it: `bin.js` adds the logging and signal
-handling a daemon needs, `electron/main.js` starts the same server in-process
-after pointing it at a per-user data directory. `config.js` is a mutable
-singleton rebuilt by `configure(overrides)`, with each call layering on top of
-the last — the desktop build sets the data directory first, then the saved
-credentials, and `/api/credentials` layers newly-typed ones on top without
-disturbing either.
+The pages in `public/` are built into the app, so a release is a single
+program with nothing beside it.
 
 ### Routes
 
@@ -528,15 +388,15 @@ disturbing either.
 | `/events` | SSE stream of playback state |
 | `/api/now-playing` | JSON snapshot (fallback for browsers without EventSource) |
 | `/api/config` | reports whether creds are set, connected, and the redirect URI |
-| `/api/credentials` | POST — saves client ID/secret; **desktop only**, see below |
-| `/api/preferences` | POST — saves `closeToTray`; **desktop only** |
+| `/api/credentials` | POST — saves client ID/secret |
+| `/api/preferences` | POST — saves `closeToTray` |
 | `/api/disconnect` | POST — forgets the refresh token |
 | `/login` → `/callback` | the Spotify OAuth round trip |
 | `/art?u=…` | proxies Spotify CDN images (see below) |
 | `/logo.png` | the mark |
-| `/healthz` | container healthcheck |
+| `/healthz` | reports whether it's set up and connected |
 
-Six design notes worth keeping in mind when editing:
+Design notes worth keeping in mind when editing:
 
 - **The preview on `/setup` runs the real overlay.** The monitor is an iframe
   pointed at the same URL you paste into OBS, so you are judging the page OBS
@@ -549,31 +409,25 @@ Six design notes worth keeping in mind when editing:
   moment between tracks and the monitor should not flicker through demo mode on
   the way. `idle` and `paused` hiding are neutralised in the preview only, so
   there is always a card on screen to judge.
-- **The desktop build sends OAuth to the real browser, and the server tells it
-  when to come back.** `electron/main.js` routes `/login` and every off-origin
-  URL to `shell.openExternal`, listening on both `will-navigate` *and*
-  `will-redirect` — `/login` answers with a redirect, and a redirect is not a
-  navigation as far as the first event is concerned. `index.js` exports
-  `onConnected()`, fired once the tokens are saved, which the wrapper uses to
-  raise its window. The setup page has already updated itself over `/events` by
-  then; the callback is only about which window has focus.
+- **OAuth goes to the real browser, and the server says when to come back.**
+  The window hands `/login` and every address that isn't JammyLayer's own to
+  the default browser. Once the tokens are saved, `server.rs` calls `surface()`
+  to raise the window. The setup page has already updated itself over
+  `/events` by then; the callback is only about which window has focus.
 - **One setting, two places, one source of truth.** "Keep running when I close
   the window" is in both the setup page and the tray menu, and both write
-  `closeToTray` to `settings.json` through `server/store.js` — neither keeps its
-  own copy. Changed from the page, `onSettingsChanged()` tells the wrapper to
-  rebuild the tray menu, because a context menu is built once rather than read
-  on open. Changed from the tray, the page picks it up by re-reading
-  `/api/config` on `window.focus`, which is the only moment it can matter.
+  `closeToTray` to `settings.json` — neither keeps its own copy. Changed from
+  the page, the tray's checkmark is updated straight away. Changed from the
+  tray, the page picks it up by re-reading `/api/config` on `window.focus`,
+  which is the only moment it can matter.
 - **Album art is proxied** through `/art` rather than loaded straight from
   Spotify's CDN. The overlay reads the artwork's pixels on a `<canvas>` to
   derive the accent colour, and that only works same-origin — otherwise the
   canvas is tainted and `getImageData` throws. The proxy allow-lists
   `scdn.co` / `spotifycdn.com` only.
 - **Polling only runs while something is watching.** With no overlay and no
-  setup page connected, the timer is cleared and the server makes zero Spotify
-  requests. An offline stream costs no API quota.
-- **Writing credentials over HTTP is off unless asked for.** `/api/credentials`
-  needs both `ALLOW_SETUP` (which only the desktop build sets) *and* a loopback
-  client — on a VPS the setup page is reachable by anyone who can reach the port,
-  and it would be a hole to let them rewrite the client secret. The setup page
-  hides the form and the client ID entirely unless the server says both hold.
+  setup page connected, the app makes zero Spotify requests. An offline stream
+  costs no API quota.
+- **WidgetCake stops it by launching it again with `--quit`.** The second copy
+  hands its arguments to the running one, which quits; with nothing running,
+  `--quit` exits without opening anything.
