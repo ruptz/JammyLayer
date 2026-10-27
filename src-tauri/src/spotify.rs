@@ -17,6 +17,9 @@ use crate::settings::{Settings, Store, Tokens};
 const ACCOUNTS: &str = "https://accounts.spotify.com";
 const API: &str = "https://api.spotify.com/v1";
 const SCOPES: &str = "user-read-currently-playing user-read-playback-state";
+/// Asked for only once song requests are switched on: adding to the queue, and
+/// skipping a request a mod removed after it was already handed to Spotify.
+const QUEUE_SCOPE: &str = "user-modify-playback-state";
 
 const POLL_PLAYING: Duration = Duration::from_secs(3);
 const POLL_IDLE: Duration = Duration::from_secs(10);
@@ -34,13 +37,13 @@ pub fn now_ms() -> u64 {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Item {
-    id: String,
+    pub(crate) id: String,
     #[serde(rename = "type")]
     kind: String,
     title: String,
     subtitle: String,
     context: String,
-    duration_ms: u64,
+    pub(crate) duration_ms: u64,
     art_url: Option<String>,
     explicit: bool,
 }
@@ -50,9 +53,9 @@ pub struct Item {
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
-    playing: bool,
-    item: Option<Item>,
-    progress_ms: u64,
+    pub(crate) playing: bool,
+    pub(crate) item: Option<Item>,
+    pub(crate) progress_ms: u64,
     device: Option<String>,
     fetched_at: u64,
     error: Option<String>,
@@ -77,7 +80,20 @@ struct Account {
     refresh_token: Option<String>,
     access_token: Option<String>,
     expires_at: Option<Instant>,
+    /// What the account granted, as of the last token. An account connected
+    /// before song requests existed lacks the queue scope until reconnected.
+    scope: Option<String>,
     auth_error: Option<String>,
+}
+
+/// A track as a song request needs it.
+pub struct Track {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub art_url: Option<String>,
+    pub duration_ms: u64,
+    pub explicit: bool,
 }
 
 pub struct Spotify {
@@ -164,15 +180,32 @@ impl Spotify {
         }
     }
 
-    fn emit(&self) {
+    pub fn emit(&self) {
         let _ = self.updates.send(self.snapshot());
     }
 
     pub fn subscribe(self: &Arc<Self>) -> (broadcast::Receiver<Snapshot>, Watching) {
-        let rx = self.updates.subscribe();
+        (self.listen(), self.watch())
+    }
+
+    /// Updates, without asking for any polling to happen.
+    pub fn listen(&self) -> broadcast::Receiver<Snapshot> {
+        self.updates.subscribe()
+    }
+
+    /// Polling, for as long as the guard is held.
+    pub fn watch(self: &Arc<Self>) -> Watching {
         self.watchers.fetch_add(1, Ordering::SeqCst);
         self.wake.notify_one();
-        (rx, Watching(self.clone()))
+        Watching(self.clone())
+    }
+
+    /// None until a token has said either way.
+    pub fn can_queue(&self) -> Option<bool> {
+        let account = self.account.lock().unwrap();
+        account.refresh_token.as_ref()?;
+        let scope = account.scope.as_deref()?;
+        Some(scope.split(' ').any(|s| s == QUEUE_SCOPE))
     }
 
     // ------------------------------------------------------------ authorization
@@ -188,10 +221,11 @@ impl Spotify {
             pending.insert(state.clone(), now + STATE_LIFETIME);
         }
         let settings = self.settings.read().unwrap();
+        let scopes = if settings.requests.enabled { format!("{SCOPES} {QUEUE_SCOPE}") } else { SCOPES.to_owned() };
         let query = [
             ("response_type", "code"),
             ("client_id", settings.client_id.as_str()),
-            ("scope", SCOPES),
+            ("scope", scopes.as_str()),
             ("redirect_uri", settings.redirect_uri().as_str()),
             ("state", state.as_str()),
         ]
@@ -260,6 +294,7 @@ impl Spotify {
             let mut account = self.account.lock().unwrap();
             account.access_token = granted["access_token"].as_str().map(str::to_owned);
             account.expires_at = Some(Instant::now() + expires_in(&granted));
+            account.scope = granted["scope"].as_str().map(str::to_owned);
             account.refresh_token = Some(refresh.clone());
             account.auth_error = None;
         }
@@ -306,6 +341,9 @@ impl Spotify {
                 let mut account = self.account.lock().unwrap();
                 account.access_token = Some(token.clone());
                 account.expires_at = Some(Instant::now() + expires_in(&granted));
+                if let Some(scope) = granted["scope"].as_str() {
+                    account.scope = Some(scope.to_owned());
+                }
                 account.auth_error = None;
                 // A rotated refresh token has to be saved, or the next start
                 // signs in with one Spotify has already retired.
@@ -335,15 +373,9 @@ impl Spotify {
     // -------------------------------------------------------------- now playing
 
     async fn fetch_now_playing(&self) -> Result<Playback, ApiError> {
-        let url = format!("{API}/me/player/currently-playing?additional_types=track,episode");
-        let mut token = self.access_token().await?;
-        let mut resp = self.get(&url, &token).await?;
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            // Revoked or expired early: force one refresh and retry once.
-            self.account.lock().unwrap().access_token = None;
-            token = self.access_token().await?;
-            resp = self.get(&url, &token).await?;
-        }
+        let resp = self
+            .call(reqwest::Method::GET, "/me/player/currently-playing?additional_types=track,episode")
+            .await?;
         match resp.status().as_u16() {
             429 => {
                 let secs = resp
@@ -372,13 +404,72 @@ impl Spotify {
         }
     }
 
-    async fn get(&self, url: &str, token: &str) -> Result<reqwest::Response, ApiError> {
-        self.http
-            .get(url)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|_| "Couldn't reach Spotify".to_string().into())
+    async fn call(&self, method: reqwest::Method, path: &str) -> Result<reqwest::Response, String> {
+        let url = format!("{API}{path}");
+        let send = |token: String| {
+            self.http
+                .request(method.clone(), &url)
+                .bearer_auth(token)
+                // The player POSTs carry everything in the query, but Spotify
+                // still wants a length.
+                .header(reqwest::header::CONTENT_LENGTH, "0")
+                .send()
+        };
+        let unreachable = |_| "Couldn't reach Spotify".to_string();
+        let mut resp = send(self.access_token().await?).await.map_err(unreachable)?;
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            // Revoked or expired early: force one refresh and retry once.
+            self.account.lock().unwrap().access_token = None;
+            resp = send(self.access_token().await?).await.map_err(unreachable)?;
+        }
+        Ok(resp)
+    }
+
+    // ------------------------------------------------------------ song requests
+
+    pub async fn track(&self, id: &str) -> Result<Track, String> {
+        let resp = self.call(reqwest::Method::GET, &format!("/tracks/{id}?market=from_token")).await?;
+        match resp.status().as_u16() {
+            400 | 404 => return Err("that track doesn't exist on Spotify".into()),
+            status if !(200..300).contains(&status) => return Err(format!("Spotify returned {status}")),
+            _ => {}
+        }
+        let body: Value = resp.json().await.map_err(|_| "Spotify sent something unexpected".to_string())?;
+        if body["is_playable"] == false {
+            return Err("that track isn't playable in this country".into());
+        }
+        Ok(Track {
+            id: id.to_owned(),
+            title: body["name"].as_str().unwrap_or_default().to_owned(),
+            artist: body["artists"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|x| x["name"].as_str()).collect::<Vec<_>>().join(", "))
+                .unwrap_or_default(),
+            art_url: pick_image(&body["album"]["images"]),
+            duration_ms: body["duration_ms"].as_u64().unwrap_or(0),
+            explicit: body["explicit"].as_bool().unwrap_or(false),
+        })
+    }
+
+    pub async fn add_to_queue(&self, track_id: &str) -> Result<(), String> {
+        let uri = encode(&format!("spotify:track:{track_id}"));
+        let resp = self.call(reqwest::Method::POST, &format!("/me/player/queue?uri={uri}")).await?;
+        player_result(resp).await
+    }
+
+    pub async fn skip(&self) -> Result<(), String> {
+        let resp = self.call(reqwest::Method::POST, "/me/player/next").await?;
+        player_result(resp).await
+    }
+
+    /// Whether a track is still waiting in Spotify's own queue.
+    pub async fn queued(&self, track_id: &str) -> Result<bool, String> {
+        let resp = self.call(reqwest::Method::GET, "/me/player/queue").await?;
+        if !resp.status().is_success() {
+            return Err(format!("Spotify returned {}", resp.status().as_u16()));
+        }
+        let body: Value = resp.json().await.map_err(|_| "Spotify sent something unexpected".to_string())?;
+        Ok(body["queue"].as_array().is_some_and(|q| q.iter().any(|t| t["id"] == track_id)))
     }
 
     /// One poll. Returns how long to wait before the next.
@@ -447,6 +538,24 @@ fn expires_in(granted: &Value) -> Duration {
 
 /// Around 300px keeps the art crisp at overlay sizes without pulling a 640px
 /// JPEG every track.
+/// The player endpoints' refusals, in words a streamer can act on.
+async fn player_result(resp: reqwest::Response) -> Result<(), String> {
+    let status = resp.status().as_u16();
+    if (200..300).contains(&status) {
+        return Ok(());
+    }
+    let body: Value = resp.json().await.unwrap_or(Value::Null);
+    let reason = body["error"]["reason"].as_str().unwrap_or_default();
+    let message = body["error"]["message"].as_str().unwrap_or_default();
+    Err(match (status, reason) {
+        (403, "PREMIUM_REQUIRED") => "Spotify Premium is needed to queue songs".into(),
+        (404, _) | (_, "NO_ACTIVE_DEVICE") => "nothing is playing on Spotify".into(),
+        (403, _) if message.contains("scope") => "reconnect Spotify to allow song requests".into(),
+        (429, _) => "Spotify rate limit reached".into(),
+        _ => format!("Spotify returned {status}"),
+    })
+}
+
 fn pick_image(images: &Value) -> Option<String> {
     images
         .as_array()?

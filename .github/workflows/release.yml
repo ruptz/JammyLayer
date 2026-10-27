@@ -4,8 +4,8 @@
 # Cut a release by pushing a tag that matches the version in package.json,
 # src-tauri/Cargo.toml and src-tauri/tauri.conf.json:
 #
-#   git tag v0.2.0
-#   git push origin v0.2.0
+#   git tag v0.3.0
+#   git push origin v0.3.0
 #
 # Or run it from the Actions tab to build the installers without releasing
 # anything: the build jobs still upload their output as workflow artifacts.

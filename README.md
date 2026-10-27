@@ -189,6 +189,93 @@ itself at <https://www.spotify.com/account/apps/> if you want it gone entirely.
 
 ---
 
+## Song requests (optional)
+
+Viewers can queue Spotify songs from Twitch chat or with a channel points
+reward. It is **off by default**, and while it is off JammyLayer does not
+connect to Twitch at all. Like everything else, it opens no ports: JammyLayer
+connects *out* to Twitch, and Twitch sends chat and redemptions back down that
+same connection.
+
+Requests need **Spotify Premium** (Spotify only lets Premium accounts add to
+the queue). Channel points need a Twitch **Affiliate or Partner** channel; chat
+requests work for anyone.
+
+### Turning it on
+
+1. In the setup page, **06 · Requests** → **Song requests** → **On**.
+2. **Reconnect Spotify** (step 02). Song requests need permission to add to your
+   queue, which JammyLayer only asks for once they are on.
+3. **Register a Twitch app** at <https://dev.twitch.tv/console/apps/create>:
+   any name, OAuth redirect URL `http://localhost` (Twitch insists on one;
+   JammyLayer never uses it), category **Chat Bot**, client type
+   **Confidential**. Then **Manage** → copy the client ID, and **New Secret**
+   for the secret. Paste both into step 1.
+4. **Connect your channel** (step 2). JammyLayer shows a short code; enter it at
+   twitch.tv/activate while signed in as your channel. Only ever enter a code
+   JammyLayer showed you.
+5. Optionally, **connect a bot account** (step 3) so replies in chat come from
+   it rather than from you. Approve its code while signed in as the bot — a
+   private window makes that easy — and make it a mod: `/mod <botname>`.
+6. Switch on **Chat requests**, **Channel points**, or both, in **07 · Rules**.
+
+Your own sign-in has to stay connected even with a bot: only the broadcaster's
+account can run a channel points reward or refund it. It asks for four
+permissions — read chat, send chat, read redemptions, manage the reward
+JammyLayer creates — and nothing else on your account.
+
+### In chat
+
+| Command | Who | Does |
+|---|---|---|
+| `!sr <Spotify link>` | anyone allowed by the rules | adds the track to the queue |
+| `!dsr` | mods | removes the newest request |
+| `!dsr <Spotify link>` | mods | removes that song |
+| `!dsr` | everyone else | removes their own newest request |
+
+`!songrequest` and `!wrongsong` work too. Links can be `open.spotify.com/track/…`
+(with or without `intl-xx/`) or `spotify:track:…`.
+
+The channel points reward takes the link as its text. A request that breaks a
+rule, or that a mod later removes, is **refunded**; one that plays is marked
+fulfilled.
+
+### The queue
+
+JammyLayer keeps the queue itself, because Spotify's own queue can't be edited —
+anything added there stays. Each request goes to Spotify about **15 seconds
+before the current song ends**, so until then it can be removed or moved from
+**08 · Queue**. One removed after it was handed over is skipped as soon as it
+starts.
+
+### Rules
+
+All in **07 · Rules**, saved the moment they change. Mods and you are exempt
+from everything but duplicates.
+
+- **Who can `!sr`** — everyone, subscribers, VIPs or mods (chat only; anyone who
+  can pay can redeem points)
+- **Per viewer** — requests one viewer can have waiting (default 2)
+- **Cooldown** — between one viewer's chat requests (default 60 s)
+- **Longest song** — in minutes (default 10)
+- **Queue size** — new requests are turned away once full (default 20)
+- **Explicit songs** — blocked by default
+- **Chat replies** — the "Added …", "Removed …" and "Now playing …" messages
+
+### Pausing
+
+**Pause requests** in the toolbar, or **Pause song requests** in the tray menu,
+is a break that leaves everything set up: `!sr` is told requests are paused,
+the reward shows as paused on Twitch so it can't be redeemed, and the queue
+keeps playing. Turning **Song requests** off instead disconnects from Twitch and
+hides the reward.
+
+Redemptions made while JammyLayer isn't running never reach it, so they stay
+pending on Twitch for you to refund by hand. Pause or switch off requests before
+you close the app if the reward should go away with it.
+
+---
+
 ## Settings
 
 Everything lives in `settings.json` in the folder above. The setup page and the
@@ -200,6 +287,11 @@ tray menu write it; you only edit it by hand to change the port.
 | `clientSecret` | — | from your Spotify app |
 | `port` | `8888` | the redirect URI registered with Spotify must use the same port |
 | `closeToTray` | `false` | closing the window hides it to the tray instead of quitting |
+| `twitchClientId`, `twitchClientSecret` | — | from your Twitch app, for song requests |
+| `requests` | off | song request switches and rules; set them from the setup page |
+
+The Twitch sign-ins are kept in `twitch.json`, and the song request queue in
+`requests.json`, beside it.
 
 ### Surfaces
 
@@ -280,6 +372,17 @@ silently. Check the browser console on the overlay page.
 refresh token. The setup page shows the auth error; reconnect the account.
 Rotated tokens are persisted automatically, so this should be rare.
 
+**"Twitch wants your app's client secret"** — your Twitch app is Confidential, so
+Twitch needs its secret to keep you signed in. Add it in step 1 of 06 ·
+Requests. The sign-in is kept meanwhile; nothing needs reconnecting.
+
+**"Reconnect Spotify" under Rules** — your Spotify sign-in predates song
+requests, so it lacks permission to add to your queue. Reconnect it in step 02.
+
+**Requests are taken but never play** — songs only go to Spotify while it is
+playing, about 15 seconds before the current track ends. Check the error under
+Rules: Spotify Premium is required, and something has to be playing.
+
 ---
 
 ## Support
@@ -308,8 +411,9 @@ the overlay.
 | Server | `axum`, listening on `127.0.0.1` only |
 | Transport | Server-Sent Events (`/events`), with a JSON polling fallback |
 | Frontend | Plain HTML/CSS/JS, no build step, no bundler, no framework |
-| Auth | Spotify Authorization Code flow; refresh token on disk |
-| State | Two JSON files (`settings.json`, `tokens.json`) — no database |
+| Auth | Spotify Authorization Code flow; Twitch device code flow; refresh tokens on disk |
+| Twitch | One outbound EventSub WebSocket, opened only while song requests want it |
+| State | JSON files (`settings.json`, `tokens.json`, `twitch.json`, `requests.json`) — no database |
 
 **Browser target: Chromium 103.** OBS 30.x still embeds CEF/Chromium 103, so
 `overlay.css` avoids `color-mix()`, `:has()`, `oklch()` and CSS nesting. Colours
@@ -368,8 +472,13 @@ is not achievable in a browser source, by anyone.
 src-tauri/src/
   lib.rs        the app: window, tray, single instance, start with Windows
   server.rs     HTTP routing, static files, SSE stream, album-art proxy
-  spotify.rs    OAuth, token refresh, now-playing polling, subscriber fan-out
-  settings.rs   atomic read/write of settings.json and tokens.json
+  spotify.rs    OAuth, token refresh, now-playing polling, subscriber fan-out,
+                and the queue calls song requests make
+  twitch.rs     song requests' Twitch side: device-code sign-in for the
+                channel and an optional bot, the EventSub socket, chat
+                replies, the channel points reward
+  requests.rs   the song request queue: rules, !sr / !dsr, hand-off to Spotify
+  settings.rs   atomic read/write of settings.json and the other JSON files
 public/
   overlay.html/.css/.js   the OBS browser source
   setup.html/.css/.js     the configuration + preview UI
@@ -392,6 +501,12 @@ program with nothing beside it.
 | `/api/preferences` | POST — saves `closeToTray` |
 | `/api/disconnect` | POST — forgets the refresh token |
 | `/login` → `/callback` | the Spotify OAuth round trip |
+| `/requests/events` | SSE stream of song request state: switches, accounts, queue |
+| `/api/requests` | JSON snapshot of the same |
+| `/api/requests/settings` | POST — any subset of the switches and rules |
+| `/api/requests/remove`, `/move`, `/clear` | POST — edits the queue |
+| `/api/twitch/credentials` | POST — saves the Twitch client ID and secret |
+| `/api/twitch/pair`, `/cancel`, `/disconnect` | POST — Twitch sign-in for the channel or the bot |
 | `/art?u=…` | proxies Spotify CDN images (see below) |
 | `/logo.png` | the mark |
 | `/healthz` | reports whether it's set up and connected |
@@ -428,6 +543,11 @@ Design notes worth keeping in mind when editing:
 - **Polling only runs while something is watching.** With no overlay and no
   setup page connected, the app makes zero Spotify requests. An offline stream
   costs no API quota.
+- **Only this machine's own pages can drive the server.** Listening on
+  `127.0.0.1` keeps out the network but not web pages in your browser, which
+  can reach `127.0.0.1` too. So every request must name this server as its
+  `Host` (which defeats DNS rebinding), and a POST with an `Origin` must come
+  from JammyLayer's own pages.
 - **WidgetCake stops it by launching it again with `--quit`.** The second copy
   hands its arguments to the running one, which quits; with nothing running,
   `--quit` exits without opening anything.

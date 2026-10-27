@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::requests::Request;
+
 pub const DEFAULT_PORT: u16 = 8888;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -25,6 +27,91 @@ pub struct Settings {
     /// usually means.
     #[serde(default)]
     pub close_to_tray: bool,
+    /// A second app the user registers, on Twitch's developer console, for
+    /// song requests from chat and channel points. The secret is optional:
+    /// without one it's a Public client, whose sign-in lasts 30 days.
+    #[serde(default)]
+    pub twitch_client_id: String,
+    #[serde(default)]
+    pub twitch_client_secret: String,
+    #[serde(default)]
+    pub requests: RequestSettings,
+}
+
+/// Who may use !sr in chat. Channel points are open to anyone who can pay.
+#[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum Who {
+    #[default]
+    Everyone,
+    Subscribers,
+    Vips,
+    Mods,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RequestSettings {
+    /// The whole feature, off unless switched on. Off, JammyLayer doesn't
+    /// connect to Twitch, doesn't touch the queue, hides the reward, and
+    /// doesn't ask Spotify for permission to control playback.
+    pub enabled: bool,
+    /// A break: no new requests, the reward shown as paused on Twitch, the
+    /// queue still playing out. Set up stays set up, unlike `enabled`.
+    pub paused: bool,
+    /// Each source on its own, under `enabled`.
+    pub chat_enabled: bool,
+    pub points_enabled: bool,
+    pub who: Who,
+    /// Waiting requests one viewer may hold at once. Mods aren't limited.
+    pub max_per_user: u32,
+    /// Answers in chat: "Added …", "Removed …", "Now playing …". Off, requests
+    /// still work and only the Queue section shows what happened.
+    pub chat_replies: bool,
+    /// Between one viewer's !sr and their next.
+    pub cooldown_secs: u64,
+    pub max_minutes: u32,
+    pub allow_explicit: bool,
+    pub queue_limit: u32,
+    pub reward_title: String,
+    pub reward_cost: u32,
+    /// The channel points reward JammyLayer created. Twitch lets only the app
+    /// that made a reward pause it or refund its redemptions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reward_id: Option<String>,
+}
+
+impl Default for RequestSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            paused: false,
+            chat_enabled: false,
+            points_enabled: false,
+            who: Who::Everyone,
+            max_per_user: 2,
+            chat_replies: true,
+            cooldown_secs: 60,
+            max_minutes: 10,
+            allow_explicit: false,
+            queue_limit: 20,
+            reward_title: "Song request".into(),
+            reward_cost: 1000,
+            reward_id: None,
+        }
+    }
+}
+
+impl RequestSettings {
+    /// !sr is being taken right now.
+    pub fn chat(&self) -> bool {
+        self.enabled && self.chat_enabled
+    }
+
+    /// The reward is on the channel right now.
+    pub fn points(&self) -> bool {
+        self.enabled && self.points_enabled
+    }
 }
 
 impl Settings {
@@ -41,6 +128,33 @@ impl Settings {
     pub fn redirect_uri(&self) -> String {
         format!("http://127.0.0.1:{}/callback", self.port())
     }
+
+    pub fn twitch_configured(&self) -> bool {
+        !self.twitch_client_id.is_empty()
+    }
+}
+
+/// Kept apart from tokens.json, which the Spotify account owns outright.
+/// The channel's sign-in sits at the top level; the optional bot account
+/// that replies in chat is nested.
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TwitchTokens {
+    #[serde(flatten)]
+    pub channel: SeatTokens,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot: Option<SeatTokens>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SeatTokens {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -98,5 +212,23 @@ impl Store {
 
     pub fn save_tokens(&self, tokens: &Tokens) -> std::io::Result<()> {
         self.write("tokens.json", tokens)
+    }
+
+    pub fn twitch_tokens(&self) -> TwitchTokens {
+        self.read("twitch.json")
+    }
+
+    pub fn save_twitch_tokens(&self, tokens: &TwitchTokens) -> std::io::Result<()> {
+        self.write("twitch.json", tokens)
+    }
+
+    /// The song request queue, so a restart mid-stream doesn't lose requests
+    /// viewers paid channel points for.
+    pub fn queue(&self) -> Vec<Request> {
+        self.read("requests.json")
+    }
+
+    pub fn save_queue(&self, queue: &[Request]) -> std::io::Result<()> {
+        self.write("requests.json", &queue)
     }
 }

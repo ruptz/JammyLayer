@@ -1,6 +1,11 @@
 //! The local web server: OBS's browser source, the setup page shown in the
 //! app's window, and the end of Spotify's login. It listens on this computer
 //! only (127.0.0.1); JammyLayer is not reachable from the network.
+//!
+//! Listening locally doesn't keep out web pages open in the user's browser,
+//! which can send requests to 127.0.0.1 too. So requests must name this
+//! server as their host, which defeats DNS rebinding, and anything that
+//! changes something must come from JammyLayer's own pages.
 
 use std::collections::VecDeque;
 use std::convert::Infallible;
@@ -18,8 +23,10 @@ use serde_json::{Value, json};
 use tauri::AppHandle;
 use tokio_stream::wrappers::BroadcastStream;
 
+use crate::requests::Requests;
 use crate::settings::Store;
 use crate::spotify::Spotify;
+use crate::twitch::{Seat, Twitch};
 
 /// Only Spotify's own image hosts are fetched on the overlay's behalf.
 const ART_HOSTS: [&str; 2] = ["scdn.co", "spotifycdn.com"];
@@ -29,11 +36,19 @@ pub struct Ctx {
     pub app: AppHandle,
     pub store: Store,
     pub spotify: Arc<Spotify>,
+    pub twitch: Arc<Twitch>,
+    pub requests: Arc<Requests>,
     art: Mutex<VecDeque<(String, Bytes, String)>>,
 }
 
-pub fn router(app: AppHandle, store: Store, spotify: Arc<Spotify>) -> Router {
-    let ctx = Arc::new(Ctx { app, store, spotify, art: Mutex::new(VecDeque::new()) });
+pub fn router(
+    app: AppHandle,
+    store: Store,
+    spotify: Arc<Spotify>,
+    twitch: Arc<Twitch>,
+    requests: Arc<Requests>,
+) -> Router {
+    let ctx = Arc::new(Ctx { app, store, spotify, twitch, requests, art: Mutex::new(VecDeque::new()) });
     Router::new().fallback(handle).with_state(ctx)
 }
 
@@ -139,6 +154,16 @@ async fn handle(State(ctx): State<Arc<Ctx>>, req: Request) -> Response {
     let path = if path.is_empty() { "/".to_owned() } else { path };
     let query = req.uri().query().unwrap_or_default().to_owned();
     let post = |res: fn() -> Response| if method == Method::POST { None } else { Some(res()) };
+    let port = ctx.spotify.settings.read().unwrap().port();
+    if !ours(req.headers().get(header::HOST), port) {
+        return text(StatusCode::MISDIRECTED_REQUEST, "Wrong host");
+    }
+    if method == Method::POST
+        && let Some(origin) = req.headers().get(header::ORIGIN)
+        && !ours(Some(origin), port)
+    {
+        return text(StatusCode::FORBIDDEN, "Cross-origin requests are not accepted");
+    }
 
     match path.as_str() {
         "/" | "/overlay" => static_file("overlay.html"),
@@ -171,11 +196,38 @@ async fn handle(State(ctx): State<Arc<Ctx>>, req: Request) -> Response {
             Some(res) => res,
             None => {
                 ctx.spotify.disconnect();
+                ctx.twitch.changed();
                 send_json(StatusCode::OK, json!({ "ok": true }))
             }
         },
+        "/api/requests" => send_json(StatusCode::OK, ctx.requests.status()),
+        "/requests/events" => request_events(&ctx),
+        "/api/requests/settings" | "/api/requests/remove" | "/api/requests/move" | "/api/requests/clear" => {
+            match post(use_post) {
+                Some(res) => res,
+                None => edit_requests(&ctx, &path, req).await,
+            }
+        }
+        "/api/twitch/pair" | "/api/twitch/cancel" | "/api/twitch/disconnect" => match post(use_post) {
+            Some(res) => res,
+            None => twitch_account(&ctx, &path, req).await,
+        },
+        "/api/twitch/credentials" => match post(use_post) {
+            Some(res) => res,
+            None => twitch_credentials(&ctx, req).await,
+        },
         _ => text(StatusCode::NOT_FOUND, "Not found"),
     }
+}
+
+/// A Host or Origin naming this server: the loopback address or "localhost",
+/// on its port. Origins carry a scheme; hosts don't.
+fn ours(value: Option<&HeaderValue>, port: u16) -> bool {
+    let Some(value) = value.and_then(|v| v.to_str().ok()) else { return false };
+    let value = value.strip_prefix("http://").unwrap_or(value);
+    [format!("127.0.0.1:{port}"), format!("localhost:{port}"), format!("[::1]:{port}")]
+        .iter()
+        .any(|ok| value.eq_ignore_ascii_case(ok))
 }
 
 fn use_post() -> Response {
@@ -414,6 +466,8 @@ async fn credentials(ctx: &Ctx, req: Request) -> Response {
     if let Err(e) = ctx.store.save_settings(&settings) {
         return send_json(StatusCode::INTERNAL_SERVER_ERROR, json!({ "ok": false, "error": e.to_string() }));
     }
+    // So the page's state follows straight away, not at the next poll.
+    ctx.spotify.emit();
     send_json(StatusCode::OK, json!({ "ok": true, "configured": settings.configured() }))
 }
 
@@ -439,4 +493,115 @@ async fn preferences(ctx: &Ctx, req: Request) -> Response {
     // The tray menu shows the same switch.
     crate::sync_tray(&ctx.app);
     send_json(StatusCode::OK, json!({ "ok": true, "closeToTray": close_to_tray }))
+}
+
+// --------------------------------------------------------------- song requests
+
+/// The queue and its switches, live, for the setup page's Requests section.
+fn request_events(ctx: &Ctx) -> Response {
+    let first = Event::default().retry(Duration::from_secs(3)).data(ctx.requests.status().to_string());
+    let later = BroadcastStream::new(ctx.requests.subscribe())
+        .filter_map(|s| async move { s.ok().map(|s| Event::default().data(s.to_string())) });
+    let stream = stream::once(async { first }).chain(later).map(Ok::<_, Infallible>);
+    let sse = Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("ping"));
+    ([(header::CACHE_CONTROL, "no-cache, no-transform")], sse).into_response()
+}
+
+async fn edit_requests(ctx: &Ctx, path: &str, req: Request) -> Response {
+    let body = match read_json(req).await {
+        Ok(body) => body,
+        Err(res) => return res,
+    };
+    let id = body["id"].as_u64().unwrap_or_default();
+    let result = match path {
+        "/api/requests/settings" => ctx.requests.configure(&body).await,
+        "/api/requests/remove" => ctx.requests.remove(id).await.map(|_| ()).ok_or_else(|| "Not in the queue.".into()),
+        "/api/requests/move" => {
+            let up = body["up"].as_bool().unwrap_or(true);
+            if ctx.requests.shift(id, up) { Ok(()) } else { Err("Can't move that one.".into()) }
+        }
+        _ => {
+            ctx.requests.clear().await;
+            Ok(())
+        }
+    };
+    match result {
+        Ok(()) => send_json(StatusCode::OK, json!({ "ok": true })),
+        Err(error) => send_json(StatusCode::BAD_REQUEST, json!({ "ok": false, "error": error })),
+    }
+}
+
+async fn twitch_credentials(ctx: &Ctx, req: Request) -> Response {
+    let body = match read_json(req).await {
+        Ok(body) => body,
+        Err(res) => return res,
+    };
+    let field = |k: &str| body[k].as_str().unwrap_or_default().trim().to_owned();
+    let (client_id, client_secret) = (field("clientId"), field("clientSecret"));
+    if client_id.is_empty() {
+        return send_json(StatusCode::BAD_REQUEST, json!({ "ok": false, "error": "A client ID is required." }));
+    }
+    let settings = {
+        let mut s = ctx.twitch.settings.write().unwrap();
+        // A changed client ID belongs to a different app, whose secret (if
+        // any) hasn't been typed yet; the same ID keeps the saved one.
+        if s.twitch_client_id != client_id {
+            s.twitch_client_secret.clear();
+        }
+        s.twitch_client_id = client_id;
+        if !client_secret.is_empty() {
+            s.twitch_client_secret = client_secret;
+        }
+        s.clone()
+    };
+    if let Err(e) = ctx.store.save_settings(&settings) {
+        return send_json(StatusCode::INTERNAL_SERVER_ERROR, json!({ "ok": false, "error": e.to_string() }));
+    }
+    ctx.twitch.reconsider();
+    // The setup page redraws from its event stream, not from this answer.
+    ctx.twitch.changed();
+    send_json(StatusCode::OK, json!({ "ok": true, "configured": settings.twitch_configured() }))
+}
+
+/// Connecting, cancelling a code that's waiting, and disconnecting, for the
+/// channel's account or the bot's.
+async fn twitch_account(ctx: &Ctx, path: &str, req: Request) -> Response {
+    let body = match read_json(req).await {
+        Ok(body) => body,
+        Err(res) => return res,
+    };
+    let seat = Seat::parse(body["seat"].as_str().unwrap_or_default());
+    match path {
+        "/api/twitch/pair" => match ctx.twitch.start_pairing(seat).await {
+            Ok(pairing) => send_json(StatusCode::OK, json!({ "ok": true, "pairing": pairing })),
+            Err(error) => send_json(StatusCode::BAD_GATEWAY, json!({ "ok": false, "error": error })),
+        },
+        "/api/twitch/cancel" => {
+            ctx.twitch.cancel_pairing();
+            send_json(StatusCode::OK, json!({ "ok": true }))
+        }
+        _ => {
+            ctx.twitch.disconnect(seat);
+            send_json(StatusCode::OK, json!({ "ok": true }))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ours;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn only_this_server() {
+        let ok = |v: &str| ours(Some(&HeaderValue::from_str(v).unwrap()), 8888);
+        assert!(ok("127.0.0.1:8888"));
+        assert!(ok("localhost:8888"));
+        assert!(ok("http://127.0.0.1:8888"));
+        assert!(!ok("http://127.0.0.1:9999"));
+        assert!(!ok("https://evil.example"));
+        assert!(!ok("evil.example:8888"));
+        assert!(!ok("null"));
+        assert!(!ours(None, 8888));
+    }
 }

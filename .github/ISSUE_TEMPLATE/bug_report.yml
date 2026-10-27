@@ -42,7 +42,7 @@ body:
     attributes:
       label: Version
       description: Shown on JammyLayer's card in WidgetCake, or in your system's list of installed apps.
-      placeholder: '0.2.0'
+      placeholder: '0.3.0'
     validations:
       required: true
 
