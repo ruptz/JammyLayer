@@ -894,7 +894,8 @@ function renderRequestFacts(state) {
   );
 
   const live = on && twitch.link === 'live';
-  setState($('requestsTag'), live ? 'Live' : on ? LINK_LABEL[twitch.link] : 'Off', live ? 'ok' : on ? 'warn' : undefined);
+  if (live && settings.paused) setState($('requestsTag'), 'Paused', 'warn');
+  else setState($('requestsTag'), live ? 'Live' : on ? LINK_LABEL[twitch.link] : 'Off', live ? 'ok' : on ? 'warn' : undefined);
   $('rewardHelp').textContent = settings.pointsEnabled
     ? `"${settings.rewardTitle}" is on your channel for ${settings.rewardCost} points. Off hides it.`
     : 'Creates the reward the first time. Off hides it, so nobody spends points on a request that won’t play. Needs Affiliate or Partner.';
@@ -976,6 +977,23 @@ function renderQueue(queue) {
   $('queueCount').textContent = queue.length ? String(queue.length) : '';
 }
 
+const pauseButton = $('pauseRequests');
+
+pauseButton.addEventListener('click', () => {
+  const paused = pauseButton.getAttribute('aria-pressed') !== 'true';
+  saveRequestSetting({ paused });
+});
+
+/** The toolbar button: only there while requests are on, and amber while paused. */
+function showPause(settings) {
+  pauseButton.hidden = !settings.enabled;
+  pauseButton.setAttribute('aria-pressed', String(settings.paused));
+  pauseButton.textContent = settings.paused ? 'Resume requests' : 'Pause requests';
+  pauseButton.title = settings.paused
+    ? 'Requests are paused: !sr is turned away and the reward can\u2019t be redeemed'
+    : 'Stop taking new requests for now. The queue keeps playing.';
+}
+
 /** Off, song requests are one switch; everything else waits until they're on. */
 function showRequestSections(enabled) {
   const changed = $('sec-queue').hidden === enabled;
@@ -988,6 +1006,7 @@ function renderRequests(state) {
   requestState = state;
   showRequestSettings(state.settings);
   showRequestSections(state.settings.enabled);
+  showPause(state.settings);
   renderTwitch(state);
   renderRequestFacts(state);
   renderQueue(state.queue);

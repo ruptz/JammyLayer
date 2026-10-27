@@ -56,6 +56,9 @@ pub struct RequestSettings {
     /// connect to Twitch, doesn't touch the queue, hides the reward, and
     /// doesn't ask Spotify for permission to control playback.
     pub enabled: bool,
+    /// A break: no new requests, the reward shown as paused on Twitch, the
+    /// queue still playing out. Set up stays set up, unlike `enabled`.
+    pub paused: bool,
     /// Each source on its own, under `enabled`.
     pub chat_enabled: bool,
     pub points_enabled: bool,
@@ -82,6 +85,7 @@ impl Default for RequestSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            paused: false,
             chat_enabled: false,
             points_enabled: false,
             who: Who::Everyone,

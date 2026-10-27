@@ -112,6 +112,12 @@ impl Requests {
         })
     }
 
+    /// For the tray: whether there's anything to pause, and whether it is.
+    pub fn pause_state(&self) -> (bool, bool) {
+        let r = &self.settings.read().unwrap().requests;
+        (r.enabled, r.paused)
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {
         self.updates.subscribe()
     }
@@ -190,7 +196,12 @@ impl Requests {
                 let (command, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
                 let reply = match command.to_lowercase().as_str() {
                     "!sr" | "!songrequest" => {
-                        if !self.settings.read().unwrap().requests.chat() {
+                        let rules = self.settings.read().unwrap().requests.clone();
+                        if !rules.chat() {
+                            return;
+                        }
+                        if rules.paused {
+                            self.say("Song requests are paused right now.", Some(&message_id)).await;
                             return;
                         }
                         match self.submit(&viewer, rest, None).await {
@@ -211,8 +222,12 @@ impl Requests {
                     return;
                 }
                 let redemption = Redemption { id: id.clone(), reward_id: reward_id.clone() };
-                let outcome = if rules.points() {
+                // A paused reward can't be redeemed, but one may have been
+                // in flight as the pause landed.
+                let outcome = if rules.points() && !rules.paused {
                     self.submit(&viewer, &input, Some(redemption)).await
+                } else if rules.paused {
+                    Err("song requests are paused right now".into())
                 } else {
                     Err("song requests are off right now".into())
                 };
@@ -494,6 +509,7 @@ impl Requests {
                 }
             };
             flag("enabled", &mut r.enabled);
+            flag("paused", &mut r.paused);
             flag("chatEnabled", &mut r.chat_enabled);
             flag("pointsEnabled", &mut r.points_enabled);
             flag("allowExplicit", &mut r.allow_explicit);
@@ -520,7 +536,10 @@ impl Requests {
         }
         let after = self.settings.read().unwrap().requests.clone();
         let reward_changed = before.points() != after.points()
-            || (after.points() && (before.reward_cost != after.reward_cost || before.reward_title != after.reward_title));
+            || (after.points()
+                && (before.reward_cost != after.reward_cost
+                    || before.reward_title != after.reward_title
+                    || before.paused != after.paused));
         let result = if reward_changed { self.sync_reward().await } else { Ok(()) };
         self.save_settings();
         self.twitch.reconsider();
@@ -542,7 +561,8 @@ impl Requests {
                 "cost": rules.reward_cost,
                 // Off hides it, so nobody spends points on something that won't play.
                 "is_enabled": on,
-                "is_paused": false,
+                // Paused shows viewers the reward but won't take their points.
+                "is_paused": rules.paused,
             });
             let existing = match &rules.reward_id {
                 Some(id) => self.twitch.update_reward(id, changes).await,

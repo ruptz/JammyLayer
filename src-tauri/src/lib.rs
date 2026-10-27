@@ -36,10 +36,12 @@ const QUIT: &str = "--quit";
 
 struct Shared {
     spotify: Arc<Spotify>,
+    requests: Arc<Requests>,
     base: String,
 }
 
 struct Tray {
+    pause: CheckMenuItem<Wry>,
     close_to_tray: CheckMenuItem<Wry>,
     autostart: CheckMenuItem<Wry>,
 }
@@ -112,6 +114,10 @@ pub fn sync_tray(app: &AppHandle) {
         let close = app.state::<Shared>().spotify.settings.read().unwrap().close_to_tray;
         let _ = tray.close_to_tray.set_checked(close);
         let _ = tray.autostart.set_checked(app.autolaunch().is_enabled().unwrap_or(false));
+        // Greyed out while song requests are off: there's nothing to pause.
+        let (enabled, paused) = app.state::<Shared>().requests.pause_state();
+        let _ = tray.pause.set_enabled(enabled);
+        let _ = tray.pause.set_checked(enabled && paused);
     }
 }
 
@@ -121,6 +127,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let serving = MenuItem::with_id(app, "serving", format!("Serving {base}"), false, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open setup…", true, None::<&str>)?;
     let copy = MenuItem::with_id(app, "copy", "Copy overlay URL", true, None::<&str>)?;
+    let (enabled, paused) = app.state::<Shared>().requests.pause_state();
+    let pause = CheckMenuItem::with_id(app, "pause", "Pause song requests", enabled, enabled && paused, None::<&str>)?;
     let close_to_tray = CheckMenuItem::with_id(
         app,
         "close-to-tray",
@@ -141,9 +149,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let sep = || PredefinedMenuItem::separator(app);
     let menu = Menu::with_items(
         app,
-        &[&serving, &sep()?, &open, &copy, &sep()?, &close_to_tray, &sep()?, &autostart, &sep()?, &quit],
+        &[&serving, &sep()?, &open, &copy, &sep()?, &pause, &sep()?, &close_to_tray, &sep()?, &autostart, &sep()?, &quit],
     )?;
-    app.manage(Tray { close_to_tray, autostart });
+    app.manage(Tray { pause, close_to_tray, autostart });
 
     TrayIconBuilder::with_id("tray")
         .icon(app.default_window_icon().cloned().expect("an app icon"))
@@ -154,6 +162,15 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "open" => show_window(app),
             "copy" => {
                 let _ = app.clipboard().write_text(format!("{}/", base_url(app)));
+            }
+            "pause" => {
+                let requests = app.state::<Shared>().requests.clone();
+                let paused = requests.pause_state().1;
+                // The tray follows once the change lands, through the same
+                // updates the setup page gets.
+                tauri::async_runtime::spawn(async move {
+                    let _ = requests.configure(&serde_json::json!({ "paused": !paused })).await;
+                });
             }
             "close-to-tray" => {
                 let shared = app.state::<Shared>();
@@ -233,7 +250,11 @@ pub fn run() {
             };
             listener.set_nonblocking(true)?;
 
-            app.manage(Shared { spotify: spotify.clone(), base: format!("http://127.0.0.1:{port}") });
+            app.manage(Shared {
+                spotify: spotify.clone(),
+                requests: requests.clone(),
+                base: format!("http://127.0.0.1:{port}"),
+            });
             app.manage(store.clone());
 
             let router =
@@ -246,6 +267,15 @@ pub fn run() {
             });
             tauri::async_runtime::spawn(spotify.poll());
             tauri::async_runtime::spawn(twitch.run());
+            // The tray's pause switch follows every change to song requests,
+            // wherever it was made.
+            let mut changes = requests.subscribe();
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                while let Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) = changes.recv().await {
+                    sync_tray(&handle);
+                }
+            });
             tauri::async_runtime::spawn(requests.run(incoming));
 
             build_tray(app.handle())?;

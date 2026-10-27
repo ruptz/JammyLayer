@@ -1555,6 +1555,13 @@ code {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* Pausing requests, beside the hero. Paused, it says so in amber until
+   pressed again. */
+.pill.pause[aria-pressed="true"] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
 /* The limits, four to a row rather than a field each. */
 .limits {
   display: grid;
