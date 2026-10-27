@@ -645,6 +645,386 @@ if (window.EventSource) {
   setInterval(poll, 4000);
 }
 
+// ──────────────────────────────────────────────────────────── song requests
+
+/* The Twitch, Requests and Queue sections. Everything is saved the moment it
+   changes, and the server pushes its whole state back over /requests/events
+   after every change — its own or anyone else's — so the page draws only from
+   that stream and never from a button's own answer. */
+
+const twitchNote = $('twitchNote');
+const twitchIdInput = $('twitchId');
+const twitchSecretInput = $('twitchSecret');
+const requestsNote = $('requestsNote');
+const queueList = $('queue');
+const queueEmpty = $('queueEmpty');
+const clearQueue = $('clearQueue');
+const pair = $('pair');
+
+let requestState = null;
+let editingApp = false;
+
+function noteOn(el, message, ok) {
+  el.hidden = !message;
+  el.textContent = message ?? '';
+  el.classList.toggle('note--ok', Boolean(ok));
+  el.classList.toggle('note--bad', Boolean(message) && !ok);
+}
+
+async function postJson(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Request failed (${res.status}).`);
+  return data;
+}
+
+/** A button that posts, disabled while it does, with failures noted beside it. */
+function wireAction(button, path, body, note) {
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    if (note) noteOn(note, '');
+    try {
+      await postJson(path, typeof body === 'function' ? body() : body);
+    } catch (error) {
+      if (note) noteOn(note, error.message || 'Could not reach the server.', false);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+// ─── step 1: the Twitch app
+
+$('saveTwitchBtn').addEventListener('click', async (event) => {
+  const clientId = twitchIdInput.value.trim();
+  const clientSecret = twitchSecretInput.value.trim();
+  if (!clientId) return noteOn(twitchNote, 'Paste the client ID from your Twitch app.', false);
+  event.target.disabled = true;
+  try {
+    await postJson('/api/twitch/credentials', { clientId, clientSecret });
+    twitchSecretInput.value = '';
+    noteOn(twitchNote, '');
+    editingApp = false;
+    if (requestState) renderRequests(requestState);
+  } catch (error) {
+    noteOn(twitchNote, error.message || 'Could not reach the server.', false);
+  } finally {
+    event.target.disabled = false;
+  }
+});
+
+$('appEdit').addEventListener('click', () => {
+  editingApp = true;
+  if (requestState) renderRequests(requestState);
+  twitchIdInput.focus();
+});
+
+$('appCancel').addEventListener('click', () => {
+  editingApp = false;
+  noteOn(twitchNote, '');
+  if (requestState) renderRequests(requestState);
+});
+
+// ─── steps 2 and 3: the channel and the bot
+
+const twitchAlert = $('twitchAlert');
+wireAction($('channelConnect'), '/api/twitch/pair', { seat: 'channel' }, twitchAlert);
+wireAction($('botConnect'), '/api/twitch/pair', { seat: 'bot' }, twitchAlert);
+wireAction($('channelDisconnect'), '/api/twitch/disconnect', { seat: 'channel' }, twitchAlert);
+wireAction($('botDisconnect'), '/api/twitch/disconnect', { seat: 'bot' }, twitchAlert);
+wireAction($('pairCancel'), '/api/twitch/cancel', {}, twitchAlert);
+wireCopy($('pairCopy'), $('pairUrl'));
+
+// ─── requests: switches, limits, the reward
+
+function saveRequestSetting(change) {
+  postJson('/api/requests/settings', change)
+    .then(() => noteOn(requestsNote, ''))
+    .catch((error) => noteOn(requestsNote, error.message || 'Could not reach the server.', false));
+}
+
+for (const group of document.querySelectorAll('[data-request]')) {
+  const key = group.dataset.request;
+  for (const input of group.querySelectorAll('input')) {
+    input.addEventListener('change', () => {
+      const value = input.value === 'true' ? true : input.value === 'false' ? false : input.value;
+      saveRequestSetting({ [key]: value });
+    });
+  }
+}
+
+for (const input of document.querySelectorAll('[data-number]')) {
+  input.addEventListener('change', () => {
+    const value = Number.parseInt(input.value, 10);
+    if (Number.isFinite(value) && value >= 0) saveRequestSetting({ [input.dataset.number]: value });
+  });
+}
+
+$('rewardTitle').addEventListener('change', (event) => {
+  const title = event.target.value.trim();
+  if (title) saveRequestSetting({ rewardTitle: title });
+});
+
+clearQueue.addEventListener('click', () => {
+  // Two presses, not a confirm(): a dialog would block the app's webview.
+  if (clearQueue.dataset.armed !== 'true') {
+    clearQueue.dataset.armed = 'true';
+    clearQueue.textContent = 'Press again to clear';
+    setTimeout(() => {
+      clearQueue.dataset.armed = 'false';
+      clearQueue.textContent = 'Clear all';
+    }, 3000);
+    return;
+  }
+  clearQueue.dataset.armed = 'false';
+  clearQueue.textContent = 'Clear all';
+  postJson('/api/requests/clear').catch((error) => noteOn(requestsNote, error.message, false));
+});
+
+// ─── drawing
+
+/** Radio groups and number boxes follow the server, except the one being typed in. */
+function showRequestSettings(settings) {
+  for (const group of document.querySelectorAll('[data-request]')) {
+    const input = group.querySelector(`input[value="${String(settings[group.dataset.request])}"]`);
+    if (input) input.checked = true;
+  }
+  for (const input of document.querySelectorAll('[data-number]')) {
+    if (document.activeElement !== input) input.value = settings[input.dataset.number];
+  }
+  const title = $('rewardTitle');
+  if (document.activeElement !== title) title.value = settings.rewardTitle;
+}
+
+/** One setup step: done, waiting on this one, or not reachable yet. */
+function stepState(id, state) {
+  $(id).dataset.state = state;
+}
+
+function renderTwitch(state) {
+  const { twitch } = state;
+  const { channel, bot, pairing } = twitch;
+
+  // Step 1 folds to a summary once saved, until Change opens it again.
+  const appOpen = !twitch.configured || editingApp;
+  stepState('stepApp', twitch.configured ? 'done' : 'todo');
+  $('appForm').hidden = !appOpen;
+  $('appEdit').hidden = appOpen;
+  $('appCancel').hidden = !twitch.configured;
+  $('appSummary').textContent = twitch.configured
+    ? `Client ID ${twitch.clientId.slice(0, 6)}… · ${twitch.hasSecret ? 'Confidential' : 'Public, no secret'}`
+    : "Registered once, on Twitch's developer console";
+  if (appOpen && document.activeElement !== twitchIdInput && !twitchIdInput.value) {
+    twitchIdInput.value = twitch.clientId;
+  }
+  twitchSecretInput.placeholder = twitch.hasSecret ? 'saved — retype only to replace it' : '';
+
+  const seat = (prefix, account, needs, idle) => {
+    const waiting = pairing?.seat === prefix;
+    stepState(
+      prefix === 'channel' ? 'stepChannel' : 'stepBot',
+      account.connected ? 'done' : waiting ? 'active' : needs ? 'todo' : 'blocked',
+    );
+    $(`${prefix}Connect`).hidden = account.connected || waiting;
+    $(`${prefix}Connect`).disabled = !needs || Boolean(pairing);
+    $(`${prefix}Disconnect`).hidden = !account.connected;
+    $(`${prefix}Summary`).textContent = account.connected
+      ? `Connected as ${account.login}`
+      : waiting ? 'Waiting for the code to be entered…' : idle;
+  };
+  seat('channel', channel, twitch.configured, 'Reads chat and runs the channel points reward');
+  seat(
+    'bot',
+    bot,
+    channel.connected,
+    channel.connected
+      ? 'Replies come from you until a bot is connected'
+      : 'Replies in chat come from a bot instead of you',
+  );
+  if (bot.connected) {
+    $('botSummary').textContent = `Connected as ${bot.login} · make it a mod: /mod ${bot.login}`;
+  }
+
+  // The code panel sits in the step it belongs to.
+  pair.hidden = !pairing;
+  if (pairing) {
+    const step = $(pairing.seat === 'bot' ? 'stepBot' : 'stepChannel');
+    if (pair.parentElement !== step) step.append(pair);
+    const url = pairing.verificationUri || 'https://www.twitch.tv/activate';
+    $('pairCode').textContent = pairing.userCode;
+    $('pairLink').href = url;
+    $('pairUrl').value = url;
+    $('pairHelp').textContent = pairing.seat === 'bot'
+      ? 'Approve it signed in as the bot, not as you: copy the link into a private window and log in there. Only enter a code JammyLayer showed you.'
+      : 'Approve it signed in as your channel. Only enter a code JammyLayer showed you.';
+  }
+
+  const done = channel.connected;
+  if (!state.settings.enabled) setState($('twitchTag'), 'Off');
+  else setState($('twitchTag'), done ? 'Connected' : pairing ? 'Waiting' : 'Not set up', done ? 'ok' : pairing ? 'warn' : 'todo');
+
+  const problems = [channel.error, bot.error && `Bot: ${bot.error}`].filter(Boolean);
+  twitchAlert.hidden = problems.length === 0;
+  if (problems.length) twitchAlert.textContent = problems.join(' · ');
+}
+
+const LINK_LABEL = { off: 'Off', connecting: 'Connecting', live: 'Listening', down: 'Retrying' };
+
+function renderRequestFacts(state) {
+  const { settings, twitch } = state;
+  const on = settings.chatEnabled || settings.pointsEnabled;
+
+  setState(
+    $('linkState'),
+    !twitch.channel.connected ? 'Not connected' : LINK_LABEL[twitch.link] ?? twitch.link,
+    !twitch.channel.connected || twitch.link === 'down' ? 'bad' : twitch.link === 'live' ? 'ok' : undefined,
+  );
+  setState(
+    $('queueState'),
+    !state.spotifyConnected ? 'Not connected' : state.canQueue === false ? 'Reconnect Spotify' : 'Ready',
+    !state.spotifyConnected || state.canQueue === false ? 'bad' : 'ok',
+  );
+  setState(
+    $('replyState'),
+    !settings.chatReplies ? 'Off' : twitch.bot.connected ? twitch.bot.login : twitch.channel.login || '—',
+  );
+
+  const live = on && twitch.link === 'live';
+  setState($('requestsTag'), live ? 'Live' : on ? LINK_LABEL[twitch.link] : 'Off', live ? 'ok' : on ? 'warn' : undefined);
+  $('rewardHelp').textContent = settings.pointsEnabled
+    ? `"${settings.rewardTitle}" is on your channel for ${settings.rewardCost} points. Off hides it.`
+    : 'Creates the reward the first time. Off hides it, so nobody spends points on a request that won’t play. Needs Affiliate or Partner.';
+
+  const problems = [
+    on && !twitch.channel.connected && 'Connect your channel in 06 · Requests for requests to arrive.',
+    on && twitch.linkError,
+    state.canQueue === false && 'Your Spotify sign-in predates song requests. Reconnect Spotify in 02 · Account so JammyLayer can queue songs.',
+    state.pointsError,
+    state.spotifyError && `Spotify: ${state.spotifyError}`,
+  ].filter(Boolean);
+  const alertBox = $('requestsAlert');
+  alertBox.hidden = problems.length === 0;
+  alertBox.textContent = problems.join(' · ');
+}
+
+function queueButton(label, text, onClick, disabled) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.textContent = text;
+  button.disabled = disabled;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function renderQueue(queue) {
+  queueList.replaceChildren(
+    ...queue.map((request, index) => {
+      const item = document.createElement('li');
+      item.className = 'queue__item';
+      item.classList.toggle('is-handed', request.handedOff);
+
+      const pos = document.createElement('span');
+      pos.className = 'queue__pos';
+      pos.textContent = String(index + 1);
+
+      const art = document.createElement('img');
+      art.className = 'queue__art';
+      art.alt = '';
+      art.decoding = 'async';
+      if (request.artUrl) art.src = `/art?u=${encodeURIComponent(request.artUrl)}`;
+
+      const meta = document.createElement('span');
+      meta.className = 'queue__meta';
+      const title = document.createElement('span');
+      title.className = 'queue__title';
+      title.textContent = request.title;
+      const sub = document.createElement('span');
+      sub.className = 'queue__sub';
+      sub.textContent = `${request.artist} · ${formatTime(request.durationMs)}`;
+      const by = document.createElement('span');
+      by.className = 'queue__by';
+      by.textContent = `${request.redemption ? 'Points' : 'Chat'} · ${request.userName}`;
+      meta.append(title, sub, by);
+
+      const prev = queue[index - 1];
+      const next = queue[index + 1];
+      const tools = document.createElement('span');
+      tools.className = 'queue__tools';
+      const move = (up) => () => postJson('/api/requests/move', { id: request.id, up }).catch(() => {});
+      const remove = queueButton('Remove', '✕', () => {
+        postJson('/api/requests/remove', { id: request.id }).catch((error) => noteOn(requestsNote, error.message, false));
+      }, false);
+      remove.classList.add('is-remove');
+      tools.append(
+        queueButton('Move up', '↑', move(true), !prev || prev.handedOff || request.handedOff),
+        queueButton('Move down', '↓', move(false), !next || request.handedOff),
+        remove,
+      );
+
+      item.append(pos, art, meta, tools);
+      return item;
+    }),
+  );
+  queueEmpty.hidden = queue.length > 0;
+  clearQueue.hidden = queue.length === 0;
+  $('queueCount').textContent = queue.length ? String(queue.length) : '';
+}
+
+/** Off, song requests are one switch; everything else waits until they're on. */
+function showRequestSections(enabled) {
+  const changed = $('sec-queue').hidden === enabled;
+  $('twitchSetup').hidden = !enabled;
+  for (const id of ['sec-requests', 'sec-queue', 'railRules', 'railQueue']) $(id).hidden = !enabled;
+  if (changed) markSection();
+}
+
+function renderRequests(state) {
+  requestState = state;
+  showRequestSettings(state.settings);
+  showRequestSections(state.settings.enabled);
+  renderTwitch(state);
+  renderRequestFacts(state);
+  renderQueue(state.queue);
+}
+
+if (window.EventSource) {
+  const requestSource = new EventSource('/requests/events');
+  requestSource.addEventListener('message', (event) => {
+    try {
+      renderRequests(JSON.parse(event.data));
+    } catch {
+      /* ignore a malformed frame */
+    }
+  });
+} else {
+  const pollRequests = () => fetch('/api/requests').then((r) => r.json()).then(renderRequests).catch(() => {});
+  pollRequests();
+  setInterval(pollRequests, 4000);
+}
+
+// ─────────────────────────────────────────────────────────── outside links
+
+/* In the app, a link that would open a new tab is handed to the system
+   browser through Tauri's opener — the webview has no tabs of its own, and
+   left to itself the click goes nowhere. In an ordinary browser, links behave
+   as links. */
+if (window.__TAURI__?.core) {
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest?.('a[target="_blank"]');
+    if (!link || event.defaultPrevented) return;
+    event.preventDefault();
+    window.__TAURI__.core
+      .invoke('plugin:opener|open_url', { url: link.href })
+      .catch((error) => console.warn('[jammylayer] could not open link', error));
+  });
+}
+
 // ──────────────────────────────────────────────────────────── section tabs
 
 const scroller = $('scroller');

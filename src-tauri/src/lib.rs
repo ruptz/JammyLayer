@@ -4,9 +4,11 @@
 //! process only hosts it. The window shows the setup page from that same
 //! server, and the tray keeps it running when the window is closed.
 
+mod requests;
 mod server;
 mod settings;
 mod spotify;
+mod twitch;
 
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -22,8 +24,10 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
+use requests::Requests;
 use settings::Store;
 use spotify::Spotify;
+use twitch::Twitch;
 
 /// Passed by the "start when I sign in" entry: come up in the tray only.
 const HIDDEN: &str = "--hidden";
@@ -206,7 +210,9 @@ pub fn run() {
             let store = Store::new(app.path().config_dir()?.join("JammyLayer"));
             let settings = Arc::new(RwLock::new(store.settings()));
             let port = settings.read().unwrap().port();
-            let spotify = Spotify::new(store.clone(), settings);
+            let spotify = Spotify::new(store.clone(), settings.clone());
+            let (twitch, incoming) = Twitch::new(store.clone(), settings);
+            let requests = Requests::new(spotify.clone(), twitch.clone(), store.clone());
 
             let listener = match std::net::TcpListener::bind(("127.0.0.1", port)) {
                 Ok(listener) => listener,
@@ -230,7 +236,8 @@ pub fn run() {
             app.manage(Shared { spotify: spotify.clone(), base: format!("http://127.0.0.1:{port}") });
             app.manage(store.clone());
 
-            let router = server::router(app.handle().clone(), store, spotify.clone());
+            let router =
+                server::router(app.handle().clone(), store, spotify.clone(), twitch.clone(), requests.clone());
             tauri::async_runtime::spawn(async move {
                 let listener = tokio::net::TcpListener::from_std(listener).expect("the listener");
                 if let Err(e) = axum::serve(listener, router).await {
@@ -238,6 +245,8 @@ pub fn run() {
                 }
             });
             tauri::async_runtime::spawn(spotify.poll());
+            tauri::async_runtime::spawn(twitch.run());
+            tauri::async_runtime::spawn(requests.run(incoming));
 
             build_tray(app.handle())?;
             if !args.iter().any(|a| a == HIDDEN) {

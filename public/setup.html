@@ -65,6 +65,18 @@
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7 9M11.5 9.5v3.5h-9v-9H6" /></svg>
       Output
     </a>
+    <a href="#sec-twitch">
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M6 12.5V3.5l7-1.5v9" /><circle cx="4.2" cy="12.5" r="1.8" /><circle cx="11.2" cy="11" r="1.8" /></svg>
+      Requests
+    </a>
+    <a href="#sec-requests" id="railRules" hidden>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 4h3M8.5 4h5M2.5 8h7M12.5 8h1M2.5 12h1M6.5 12h7" /><circle cx="7" cy="4" r="1.5" /><circle cx="11" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg>
+      Rules
+    </a>
+    <a href="#sec-queue" id="railQueue" hidden>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h7" /></svg>
+      Queue
+    </a>
   </nav>
 
   <a class="pill primary" id="heroConnect" href="/login">Connect Spotify</a>
@@ -390,6 +402,230 @@
           <li><em>Custom CSS</em> can stay empty — the page is already transparent.</li>
           <li>After any change here, right-click the source and choose <em>Refresh cache of current page</em>.</li>
         </ol>
+      </div>
+    </section>
+
+    <!-- Song requests are optional, and off by default. Off, this section is
+         just its switch: nothing connects to Twitch and nothing else shows.
+         On, the Twitch accounts follow as three steps that fold down to one
+         line each once done. -->
+    <section class="cell" id="sec-twitch">
+      <div class="strip"><span>06 · Requests</span><span class="tag" id="twitchTag">Off</span></div>
+      <div class="body">
+        <h2 class="cell__title">Song requests <span class="field__opt">optional</span></h2>
+        <p class="cell__note">Let viewers queue Spotify songs from Twitch chat or with channel points.
+          While this is off, JammyLayer doesn't connect to Twitch at all.</p>
+
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Song requests</span>
+            <p class="field__help">Turning this on asks Spotify for permission to add to your queue
+              the next time you connect it.</p>
+          </div>
+          <div class="seg" data-request="enabled">
+            <label><input type="radio" name="enabled" value="false" checked><span>Off</span></label>
+            <label><input type="radio" name="enabled" value="true"><span>On</span></label>
+          </div>
+        </div>
+
+        <div id="twitchSetup" hidden>
+        <ol class="setup">
+          <li class="setup__step" id="stepApp">
+            <div class="setup__head">
+              <span class="setup__num">1</span>
+              <span class="setup__text">
+                <span class="setup__title">Twitch app</span>
+                <span class="setup__sub" id="appSummary">Registered once, on Twitch's developer console</span>
+              </span>
+              <button class="pill" id="appEdit" type="button" hidden>Change</button>
+            </div>
+            <div class="setup__body" id="appForm">
+              <ol class="steps">
+                <li>Open the <a href="https://dev.twitch.tv/console/apps/create" target="_blank" rel="noreferrer">Twitch developer console ↗</a>
+                  and register an application. Any name works.</li>
+                <li>OAuth redirect URL: <code>http://localhost</code>. Twitch asks for one, but JammyLayer never uses it.</li>
+                <li>Category <em>Chat Bot</em>. Client type <em>Confidential</em>.</li>
+                <li>Create it, choose <em>Manage</em>, and copy the client ID. <em>New Secret</em> gives the secret.</li>
+              </ol>
+              <div class="setup__fields">
+                <label class="field__label" for="twitchId">Client ID</label>
+                <input class="input input--mono" type="text" id="twitchId" autocomplete="off" spellcheck="false">
+                <label class="field__label" for="twitchSecret">Client secret <span class="field__opt">optional</span></label>
+                <input class="input input--mono" type="password" id="twitchSecret" autocomplete="off" spellcheck="false">
+              </div>
+              <p class="field__help">Without a secret the app counts as <em>Public</em>, and Twitch signs it out every 30 days.</p>
+              <p class="note" id="twitchNote" hidden></p>
+              <div class="actions">
+                <button class="pill primary" id="saveTwitchBtn" type="button">Save</button>
+                <button class="pill" id="appCancel" type="button" hidden>Cancel</button>
+              </div>
+            </div>
+          </li>
+
+          <li class="setup__step" id="stepChannel">
+            <div class="setup__head">
+              <span class="setup__num">2</span>
+              <span class="setup__text">
+                <span class="setup__title">Your channel</span>
+                <span class="setup__sub" id="channelSummary">Reads chat and runs the channel points reward</span>
+              </span>
+              <button class="pill primary" id="channelConnect" type="button">Connect</button>
+              <button class="pill" id="channelDisconnect" type="button" hidden>Disconnect</button>
+            </div>
+          </li>
+
+          <li class="setup__step" id="stepBot">
+            <div class="setup__head">
+              <span class="setup__num">3</span>
+              <span class="setup__text">
+                <span class="setup__title">Bot account <span class="field__opt">optional</span></span>
+                <span class="setup__sub" id="botSummary">Replies in chat come from a bot instead of you</span>
+              </span>
+              <button class="pill" id="botConnect" type="button">Connect</button>
+              <button class="pill" id="botDisconnect" type="button" hidden>Disconnect</button>
+            </div>
+          </li>
+        </ol>
+
+        <!-- Moved into whichever step is waiting for its code. -->
+        <div class="pair" id="pair" hidden>
+          <span class="pair__label" id="pairLabel">Enter this code on Twitch</span>
+          <span class="pair__code mono" id="pairCode">—</span>
+          <p class="field__help" id="pairHelp"></p>
+          <div class="actions">
+            <a class="pill primary" id="pairLink" href="https://www.twitch.tv/activate" target="_blank" rel="noreferrer">Open twitch.tv/activate ↗</a>
+            <button class="pill" id="pairCopy" type="button">Copy link</button>
+            <button class="link" id="pairCancel" type="button">Cancel</button>
+          </div>
+          <input type="text" id="pairUrl" hidden readonly>
+        </div>
+
+        <p class="note note--bad" id="twitchAlert" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="cell" id="sec-requests" hidden>
+      <div class="strip"><span>07 · Rules</span><span class="tag" id="requestsTag">Off</span></div>
+      <div class="body">
+        <h2 class="cell__title">Rules</h2>
+        <p class="cell__note">Viewers type <code>!sr</code> and a Spotify track link, or redeem channel
+          points with one. Mods type <code>!dsr</code> to remove the newest request, or <code>!dsr</code>
+          and a link to remove that song. Anyone can <code>!dsr</code> their own.</p>
+
+        <dl class="facts facts--3">
+          <div class="fact"><dt>Twitch</dt><dd class="state" id="linkState">—</dd></div>
+          <div class="fact"><dt>Spotify queue</dt><dd class="state" id="queueState">—</dd></div>
+          <div class="fact"><dt>Replies from</dt><dd class="state" id="replyState">—</dd></div>
+        </dl>
+
+        <p class="note note--bad" id="requestsAlert" hidden></p>
+
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Chat requests</span>
+            <p class="field__help"><code>!sr</code> in chat. Takes effect immediately.</p>
+          </div>
+          <div class="seg" data-request="chatEnabled">
+            <label><input type="radio" name="chatEnabled" value="false" checked><span>Off</span></label>
+            <label><input type="radio" name="chatEnabled" value="true"><span>On</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Channel points</span>
+            <p class="field__help" id="rewardHelp">Creates the reward the first time. Off hides it, so nobody
+              spends points on a request that won't play. Needs Affiliate or Partner.</p>
+          </div>
+          <div class="seg" data-request="pointsEnabled">
+            <label><input type="radio" name="pointsEnabled" value="false" checked><span>Off</span></label>
+            <label><input type="radio" name="pointsEnabled" value="true"><span>On</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Chat replies</span>
+            <p class="field__help">"Added …", "Removed …" and "Now playing …" messages</p>
+          </div>
+          <div class="seg" data-request="chatReplies">
+            <label><input type="radio" name="chatReplies" value="false"><span>Off</span></label>
+            <label><input type="radio" name="chatReplies" value="true" checked><span>On</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Who can !sr</span>
+            <p class="field__help">Chat only. Anyone who can pay can redeem points.</p>
+          </div>
+          <div class="seg" data-request="who">
+            <label><input type="radio" name="who" value="everyone" checked><span>Everyone</span></label>
+            <label><input type="radio" name="who" value="subscribers"><span>Subs</span></label>
+            <label><input type="radio" name="who" value="vips"><span>VIPs</span></label>
+            <label><input type="radio" name="who" value="mods"><span>Mods</span></label>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field__text">
+            <span class="field__label">Explicit songs</span>
+            <p class="field__help">Spotify's explicit tag</p>
+          </div>
+          <div class="seg" data-request="allowExplicit">
+            <label><input type="radio" name="allowExplicit" value="false" checked><span>Block</span></label>
+            <label><input type="radio" name="allowExplicit" value="true"><span>Allow</span></label>
+          </div>
+        </div>
+
+        <div class="field field--stack">
+          <span class="field__label">Limits</span>
+          <p class="field__help">Mods and you aren't held to these. Nobody can request a song already in the queue.</p>
+          <div class="limits">
+            <label class="limit">
+              <span class="limit__label">Per viewer</span>
+              <span class="unit"><input class="input input--num" type="number" data-number="maxPerUser" min="0" max="50"><span class="unit__suffix">songs</span></span>
+            </label>
+            <label class="limit">
+              <span class="limit__label">Cooldown</span>
+              <span class="unit"><input class="input input--num" type="number" data-number="cooldownSecs" min="0" max="3600"><span class="unit__suffix">sec</span></span>
+            </label>
+            <label class="limit">
+              <span class="limit__label">Longest song</span>
+              <span class="unit"><input class="input input--num" type="number" data-number="maxMinutes" min="0" max="60"><span class="unit__suffix">min</span></span>
+            </label>
+            <label class="limit">
+              <span class="limit__label">Queue size</span>
+              <span class="unit"><input class="input input--num" type="number" data-number="queueLimit" min="1" max="200"><span class="unit__suffix">songs</span></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field field--stack">
+          <span class="field__label">Channel points reward</span>
+          <div class="reward">
+            <input class="input" type="text" id="rewardTitle" maxlength="45" spellcheck="false" aria-label="Reward name">
+            <span class="unit"><input class="input input--num" type="number" data-number="rewardCost" min="1" aria-label="Reward cost"><span class="unit__suffix">pts</span></span>
+          </div>
+        </div>
+
+        <p class="note" id="requestsNote" hidden></p>
+      </div>
+    </section>
+
+    <section class="cell" id="sec-queue" hidden>
+      <div class="strip">
+        <span>08 · Queue</span>
+        <button class="link" id="clearQueue" type="button" hidden>Clear all</button>
+      </div>
+      <div class="body">
+        <h2 class="cell__title">Up next <span class="queue__count mono" id="queueCount"></span></h2>
+        <p class="cell__note">Each request goes to Spotify about 15 seconds before the song playing
+          ends. One already handed over can't be moved, and is skipped if you remove it.
+          Removing a channel points request refunds it.</p>
+        <ol class="queue" id="queue"></ol>
+        <p class="queue__empty" id="queueEmpty">Nothing requested yet.</p>
       </div>
     </section>
   </main>
