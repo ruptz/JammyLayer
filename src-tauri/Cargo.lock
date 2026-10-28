@@ -1998,7 +1998,8 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "futures-util",
- "getrandom 0.3.4",
+ "layer-spotify",
+ "layer-twitch",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2011,7 +2012,6 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tokio",
  "tokio-stream",
- "tokio-tungstenite",
 ]
 
 [[package]]
@@ -2176,6 +2176,31 @@ checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
 dependencies = [
  "bitflags 2.13.2",
  "serde",
+]
+
+[[package]]
+name = "layer-spotify"
+version = "0.3.0"
+source = "git+https://github.com/ruptz/LayerKit?tag=v0.3.0#fa9bb9c8e23b06cc123d4ab192e30abe1bb1646c"
+dependencies = [
+ "getrandom 0.3.4",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "layer-twitch"
+version = "0.3.0"
+source = "git+https://github.com/ruptz/LayerKit?tag=v0.3.0#fa9bb9c8e23b06cc123d4ab192e30abe1bb1646c"
+dependencies = [
+ "futures-util",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

@@ -548,6 +548,13 @@ Design notes worth keeping in mind when editing:
   can reach `127.0.0.1` too. So every request must name this server as its
   `Host` (which defeats DNS rebinding), and a POST with an `Origin` must come
   from JammyLayer's own pages.
+- **Other Layer apps call the same routes.** A native app sends no `Origin`,
+  so it passes the check above, which is what lets BiscuitLayer say "pause song
+  requests" or ask who requested a song. It finds the port where WidgetCake
+  does, in `settings.json`. These are relied on outside this repo, so keep
+  them working: `GET /api/requests`, and `POST /api/requests/settings`
+  (`{"paused": true}` and any other subset), `/remove` and `/clear`. Requiring
+  an `Origin` on POSTs, or a token, would break them.
 - **WidgetCake stops it by launching it again with `--quit`.** The second copy
   hands its arguments to the running one, which quits; with nothing running,
   `--quit` exits without opening anything.

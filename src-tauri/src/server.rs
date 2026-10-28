@@ -542,7 +542,7 @@ async fn twitch_credentials(ctx: &Ctx, req: Request) -> Response {
         return send_json(StatusCode::BAD_REQUEST, json!({ "ok": false, "error": "A client ID is required." }));
     }
     let settings = {
-        let mut s = ctx.twitch.settings.write().unwrap();
+        let mut s = ctx.spotify.settings.write().unwrap();
         // A changed client ID belongs to a different app, whose secret (if
         // any) hasn't been typed yet; the same ID keeps the saved one.
         if s.twitch_client_id != client_id {
