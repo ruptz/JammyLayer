@@ -27,7 +27,6 @@ use tauri_plugin_opener::OpenerExt;
 use requests::Requests;
 use settings::Store;
 use spotify::Spotify;
-use twitch::Twitch;
 
 /// Passed by the "start when I sign in" entry: come up in the tray only.
 const HIDDEN: &str = "--hidden";
@@ -228,7 +227,7 @@ pub fn run() {
             let settings = Arc::new(RwLock::new(store.settings()));
             let port = settings.read().unwrap().port();
             let spotify = Spotify::new(store.clone(), settings.clone());
-            let (twitch, incoming) = Twitch::new(store.clone(), settings);
+            let (twitch, incoming) = twitch::new(store.clone(), settings);
             let requests = Requests::new(spotify.clone(), twitch.clone(), store.clone());
 
             let listener = match std::net::TcpListener::bind(("127.0.0.1", port)) {

@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::requests::Request;
 
+/// The Twitch sign-in, kept apart from tokens.json, which the Spotify account
+/// owns outright. Its shape is layer-twitch's.
+pub use layer_twitch::TwitchTokens;
+/// The Spotify sign-in (tokens.json). Its shape is layer-spotify's.
+pub use layer_spotify::Tokens;
+
 pub const DEFAULT_PORT: u16 = 8888;
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -132,37 +138,6 @@ impl Settings {
     pub fn twitch_configured(&self) -> bool {
         !self.twitch_client_id.is_empty()
     }
-}
-
-/// Kept apart from tokens.json, which the Spotify account owns outright.
-/// The channel's sign-in sits at the top level; the optional bot account
-/// that replies in chat is nested.
-#[derive(Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct TwitchTokens {
-    #[serde(flatten)]
-    pub channel: SeatTokens,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bot: Option<SeatTokens>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SeatTokens {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub login: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct Tokens {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub obtained_at: Option<String>,
 }
 
 #[derive(Clone)]

@@ -240,6 +240,8 @@ impl Requests {
                 };
                 self.say(&reply, None).await;
             }
+            // JammyLayer subscribes to nothing else.
+            Incoming::Event { .. } => {}
         }
     }
 
@@ -571,7 +573,7 @@ impl Requests {
             match existing {
                 Ok(()) => Ok(()),
                 Err(RewardError::Missing) if on => {
-                    match self.twitch.create_reward(&rules.reward_title, rules.reward_cost).await {
+                    match self.twitch.create_reward(&rules.reward_title, rules.reward_cost, crate::twitch::REWARD_PROMPT).await {
                         Ok(id) => {
                             self.settings.write().unwrap().requests.reward_id = Some(id);
                             Ok(())
