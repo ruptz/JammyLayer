@@ -28,9 +28,11 @@ tokio = { version = "1", features = ["net", "sync", "time", "macros"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-# Spotify and Twitch sign-in and APIs, shared with the other Layer apps.
-layer-spotify = { git = "https://github.com/ruptz/LayerKit", tag = "v0.3.0" }
-layer-twitch = { git = "https://github.com/ruptz/LayerKit", tag = "v0.3.0" }
+# Spotify and Twitch sign-in and APIs, and secrets in the system keystore,
+# shared with the other Layer apps.
+layer-secrets = { git = "https://github.com/ruptz/LayerKit", tag = "v0.4.0" }
+layer-spotify = { git = "https://github.com/ruptz/LayerKit", tag = "v0.4.0" }
+layer-twitch = { git = "https://github.com/ruptz/LayerKit", tag = "v0.4.0" }
 
 [profile.release]
 codegen-units = 1
