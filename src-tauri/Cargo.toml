@@ -1,6 +1,6 @@
 [package]
 name = "jammylayer"
-version = "0.3.1"
+version = "0.3.2"
 description = "Spotify now-playing overlay for OBS"
 authors = ["ruptz"]
 edition = "2024"
