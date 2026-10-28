@@ -122,8 +122,14 @@ inside the install directory:
 | macOS | `~/Library/Application Support/JammyLayer/` |
 | Linux | `~/.config/JammyLayer/` |
 
-`settings.json` holds the client ID and secret; `tokens.json` holds the refresh
-token. Nothing is sent anywhere except to Spotify.
+`settings.json` holds the client ID. The client secret and your Spotify
+sign-in are kept in Windows Credential Manager (the Keychain on macOS, the
+keyring on Linux), encrypted for your Windows account, so none of these files
+holds anything secret and it's safe to paste `settings.json` when asking for
+help. Nothing is sent anywhere except to Spotify.
+
+Secrets an older version left in the files are moved across the first time the
+app starts. On a Linux desktop with no keyring they stay in the files instead.
 
 ### 3. Add it to OBS
 
@@ -278,8 +284,9 @@ you close the app if the reward should go away with it.
 
 ## Settings
 
-Everything lives in `settings.json` in the folder above. The setup page and the
-tray menu write it; you only edit it by hand to change the port.
+Everything lives in `settings.json` in the folder above, except the secrets,
+which are in Credential Manager. The setup page and the tray menu write it; you
+only edit it by hand to change the port.
 
 | Key | Default | Notes |
 |---|---|---|
@@ -290,7 +297,8 @@ tray menu write it; you only edit it by hand to change the port.
 | `twitchClientId`, `twitchClientSecret` | — | from your Twitch app, for song requests |
 | `requests` | off | song request switches and rules; set them from the setup page |
 
-The Twitch sign-ins are kept in `twitch.json`, and the song request queue in
+Which Twitch accounts are signed in is kept in `twitch.json` (the sign-ins
+themselves are in Credential Manager), and the song request queue in
 `requests.json`, beside it.
 
 ### Surfaces
@@ -414,6 +422,7 @@ the overlay.
 | Auth | Spotify Authorization Code flow; Twitch device code flow; refresh tokens on disk |
 | Twitch | One outbound EventSub WebSocket, opened only while song requests want it |
 | State | JSON files (`settings.json`, `tokens.json`, `twitch.json`, `requests.json`) — no database |
+| Secrets | The system keystore, through LayerKit's `layer-secrets`: Credential Manager, Keychain or the Secret Service |
 
 **Browser target: Chromium 103.** OBS 30.x still embeds CEF/Chromium 103, so
 `overlay.css` avoids `color-mix()`, `:has()`, `oklch()` and CSS nesting. Colours
@@ -478,7 +487,8 @@ src-tauri/src/
                 channel and an optional bot, the EventSub socket, chat
                 replies, the channel points reward
   requests.rs   the song request queue: rules, !sr / !dsr, hand-off to Spotify
-  settings.rs   atomic read/write of settings.json and the other JSON files
+  settings.rs   atomic read/write of settings.json and the other JSON files;
+                secrets to and from the keystore
 public/
   overlay.html/.css/.js   the OBS browser source
   setup.html/.css/.js     the configuration + preview UI
